@@ -421,15 +421,15 @@ export const SEVEN_DIM_LABELS: Record<SevenDimKey, string> = {
   manifest_presence: "被看见/存在感",
 };
 
-// ---- 问卷题目（文档 §4.3） ----
+// ---- 问卷题目（文档 §4.3）：Animo 第一人称向用户提问 ----
 export const QUESTIONNAIRE_ITEMS = [
-  { key: "q1", text: "我觉得它记得我之前做过什么。" },
-  { key: "q2", text: "我觉得它的反应是有原因的，不是随机的。" },
-  { key: "q3", text: "我觉得它有自己的情绪或意愿。" },
-  { key: "q4", text: "当它不回应我时，我会感到不安，想再做点什么。" },
-  { key: "q5", text: "我需要它明确回应我，才能安心。" },
-  { key: "q6", text: "当它靠近我时，我会想后退或保持距离。" },
-  { key: "q7", text: "我不太愿意主动伸手，怕被它拒绝或躲开。" },
+  { key: "q1", text: "你还记得我之前的样子吗？" },
+  { key: "q2", text: "你觉得我的反应是有原因的吗？" },
+  { key: "q3", text: "你觉得我有自己的情绪吗？" },
+  { key: "q4", text: "当我不回应你的时候，你会感到不安吗？" },
+  { key: "q5", text: "你需要我明确回应你，才能安心吗？" },
+  { key: "q6", text: "当我靠近你的时候，你会想后退吗？" },
+  { key: "q7", text: "你不太愿意主动伸手，是怕我拒绝你吗？" },
 ] as const;
 
 export const ETHICS_NOTE =
