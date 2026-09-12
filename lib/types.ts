@@ -115,9 +115,9 @@ export type QuestionnaireAnswers = Record<"q1" | "q2" | "q3" | "q4" | "q5" | "q6
 
 /** 报告数据（文档 §5.3） */
 export interface ReportData {
-  connection_score: number; // 0-10
-  connection_label: string; // 强联结 / 中等联结 / 弱联结 / 无联结
   keywords: string[];
+  inferences: string[]; // 3-5 条情绪化推测（"第XX秒，你…，Animo 感到…"）
+  quote: { text: string; author: string }; // 哲理性名言
   scores: SevenScores;
   description: string;
   conflict_note?: string;

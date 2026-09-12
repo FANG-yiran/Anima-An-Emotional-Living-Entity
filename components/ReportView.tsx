@@ -19,45 +19,55 @@ const DIM_ORDER: SevenDimKey[] = [
   "manifest_presence",
 ];
 
-function dimColor(dim: SevenDimKey): string {
-  switch (dim) {
-    case "approach_tendency": return "linear-gradient(90deg,#6ee7ff,#a78bfa)";
-    case "confirmation_need": return "linear-gradient(90deg,#fbbf24,#fb7185)";
-    case "rejection_sensitivity": return "linear-gradient(90deg,#fb7185,#f0abfc)";
-    case "intimacy_tolerance": return "linear-gradient(90deg,#4ade80,#6ee7ff)";
-    case "uncertainty_tolerance": return "linear-gradient(90deg,#a78bfa,#6ee7ff)";
-    case "boundary": return "linear-gradient(90deg,#94a3b8,#6ee7ff)";
-    case "repair_tendency": return "linear-gradient(90deg,#f0abfc,#4ade80)";
-    case "manifest_presence": return "linear-gradient(90deg,#e2e8f0,#6ee7ff)";
-  }
-}
+// 冷色调统一渐变：所有维度条同一颜色（减少颜色数量）
+const DIM_BAR = "linear-gradient(90deg, rgba(148, 180, 210, 0.28), #9bd7ff)";
 
-/** 最终评估报告（文档 §5.3 输出格式） */
+/** 最终评估报告：第三性的观察（冷色、神秘、艺术化） */
 export default function ReportView({ report, onRestart }: Props) {
   return (
     <div className="report-scroll">
       <div className="report panel">
         <div className="report-head">
-          <div className="report-eyebrow">关系之镜 · 评估报告</div>
-          <div className="report-score">
-            <span className="score-num">{report.connection_score}</span>
-            <span className="score-den"> / 10</span>
-          </div>
-          <div className={`score-label score-${Math.min(3, Math.floor(report.connection_score / 3))}`}>
-            {report.connection_label}
+          <div className="report-eyebrow">关系之镜 · 第三性的观察</div>
+          <div className="report-ornament" aria-hidden="true">
+            <span />
           </div>
         </div>
 
+        {report.keywords.length > 0 && (
+          <div className="report-section">
+            <div className="report-h">关键词</div>
+            <div className="chip-row">
+              {report.keywords.map((k) => (
+                <span className="chip chip-cold" key={k}>
+                  {k}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="report-section">
-          <div className="report-h">关键词</div>
-          <div className="chip-row">
-            {report.keywords.map((k) => (
-              <span className="chip" key={k}>
-                {k}
-              </span>
+          <div className="report-h">它如何记得你</div>
+          <div className="inferences">
+            {report.inferences.map((line, i) => (
+              <div className="inference" key={i}>
+                <span className="inference-mark" aria-hidden="true" />
+                <p className="inference-text">{line}</p>
+              </div>
             ))}
           </div>
         </div>
+
+        {report.quote.text && (
+          <div className="report-section report-quote-section">
+            <div className="quote-mark" aria-hidden="true">
+              ❝
+            </div>
+            <p className="report-quote">{report.quote.text}</p>
+            <div className="quote-author">—— {report.quote.author}</div>
+          </div>
+        )}
 
         <div className="report-section">
           <div className="report-h">关系维度量化</div>
@@ -70,7 +80,7 @@ export default function ReportView({ report, onRestart }: Props) {
                   <div className="bar-track dim-bar">
                     <div
                       className="bar-fill"
-                      style={{ width: `${v}%`, background: dimColor(dim) }}
+                      style={{ width: `${v}%`, background: DIM_BAR }}
                     />
                   </div>
                   <span className="dim-val">{Math.round(v)}</span>

@@ -74,9 +74,14 @@ export default function Home() {
       const conn = connectionFromIndicators(five);
       const sessionLog = buildSessionLog(session.events, session.durationSec, scores);
       const tpl = matchTemplate(scores);
-      const ruleReport: ReportData = buildRuleReport(conn.score, conn.label, scores, conflictNote);
+      const ruleReport: ReportData = buildRuleReport(session.events, conn.score, scores, conflictNote);
 
       // ---- 评估期间不展示固定结果：第三性正在观察，等待 LLM 生成 ----
+      const timeline = session.events.map((e) => ({
+        t: e.timestamp,
+        a: e.user_action,
+        b: e.expressed_behavior,
+      }));
       let finalReport: ReportData = ruleReport;
       try {
         const res = await fetch("/api/agent", {
@@ -88,13 +93,25 @@ export default function Home() {
             connection: conn,
             questionnaire: answers,
             templateText: tpl.text,
+            timeline,
           }),
         });
         const data = await res.json();
-        if (!data.fallback && Array.isArray(data.keywords) && data.keywords.length && data.description) {
+        const q = data.quote as { text?: string; author?: string } | undefined;
+        if (
+          !data.fallback &&
+          Array.isArray(data.keywords) &&
+          data.keywords.length &&
+          data.description &&
+          Array.isArray(data.inferences) &&
+          data.inferences.length &&
+          q?.text
+        ) {
           finalReport = {
             ...ruleReport,
             keywords: data.keywords.slice(0, 5),
+            inferences: data.inferences.slice(0, 5),
+            quote: { text: q.text, author: q.author ?? "佚名" },
             description: data.description,
             llm_enhanced: true,
           };

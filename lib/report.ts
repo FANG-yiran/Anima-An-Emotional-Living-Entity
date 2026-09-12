@@ -1,12 +1,20 @@
-// ============ 输出生成：关键词 + 模板匹配 + 报告组装（文档 §5.1/§5.2/§5.3） ============
+// ============ 输出生成：关键词 + 模板匹配 + 情绪化推测 + 名言 + 报告组装（文档 §5.1/§5.2/§5.3） ============
 import {
   ETHICS_NOTE,
+  INFERENCE_TEXTS,
   KEYWORD_LIB,
+  QUOTE_LIB,
   SCORE_LEVEL,
   TEMPLATES,
 } from "./constants";
-import type { CondOp, Template } from "./constants";
-import type { ReportData, SevenDimKey, SevenScores } from "./types";
+import type { CondOp, Quote, Template } from "./constants";
+import type {
+  ActionType,
+  EventLogEntry,
+  ReportData,
+  SevenDimKey,
+  SevenScores,
+} from "./types";
 
 function condMatches(op: CondOp, value: number): boolean {
   switch (op) {
@@ -82,18 +90,48 @@ export function selectKeywords(scores: SevenScores, connectionScore: number): st
   return picked.slice(0, 5);
 }
 
+/** 规则引擎回退：从事件时间线提炼 3-5 条情绪化推测 */
+export function buildFallbackInferences(events: EventLogEntry[]): string[] {
+  const picked = new Map<ActionType, EventLogEntry>();
+  for (const e of events) {
+    if (picked.has(e.user_action)) continue;
+    // 被无视的动作不构成"可感的瞬间"，跳过（still 守候除外）
+    if (e.expressed_behavior === "ignore" && e.user_action !== "still") continue;
+    picked.set(e.user_action, e);
+  }
+  const lines = [...picked.values()]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(0, 5)
+    .map((e) => `第${Math.round(e.timestamp)}秒，${INFERENCE_TEXTS[e.user_action]}`);
+  if (lines.length === 0) {
+    lines.push("这九十秒里，Animo 只是安静地弥散着，等待被看见。");
+  }
+  return lines;
+}
+
+/** 规则引擎回退：按画像显著维度挑选一句哲理性名言 */
+export function pickFallbackQuote(scores: SevenScores): Quote {
+  if (scores.manifest_presence < 35) return QUOTE_LIB[7]; // 孤独与看见
+  if (scores.approach_tendency < 35 && scores.boundary > 60) return QUOTE_LIB[4]; // 里尔克
+  if (scores.rejection_sensitivity > 60) return QUOTE_LIB[3]; // 尼采
+  if (scores.approach_tendency > 60 && scores.intimacy_tolerance > 60) return QUOTE_LIB[1]; // 黑塞
+  if (scores.uncertainty_tolerance < 35) return QUOTE_LIB[5]; // 被看见的时刻
+  if (scores.confirmation_need > 60) return QUOTE_LIB[8]; // 靠近与离开
+  return QUOTE_LIB[0]; // 王尔德
+}
+
 /** 组装最终报告（规则引擎回退路径） */
 export function buildRuleReport(
+  events: EventLogEntry[],
   connectionScore: number,
-  connectionLabel: string,
   scores: SevenScores,
   conflictNote?: string
 ): ReportData {
   const tpl = matchTemplate(scores);
   return {
-    connection_score: connectionScore,
-    connection_label: connectionLabel,
     keywords: selectKeywords(scores, connectionScore),
+    inferences: buildFallbackInferences(events),
+    quote: pickFallbackQuote(scores),
     scores,
     description: tpl.text,
     conflict_note: conflictNote,

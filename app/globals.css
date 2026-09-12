@@ -1,18 +1,18 @@
 :root {
-  --bg-0: #080b16;
-  --bg-1: #0d1224;
-  --bg-2: #141a30;
-  --panel: rgba(18, 24, 46, 0.82);
-  --panel-border: rgba(120, 140, 200, 0.18);
-  --text-0: #eef2ff;
-  --text-1: #a8b3d4;
-  --text-2: #6b7699;
-  --accent: #6ee7ff;
-  --accent-2: #a78bfa;
-  --accent-3: #f0abfc;
+  --bg-0: #000000;
+  --bg-1: #06070c;
+  --bg-2: #0b0d15;
+  --panel: rgba(9, 12, 20, 0.72);
+  --panel-border: rgba(140, 165, 210, 0.14);
+  --text-0: #eef2f8;
+  --text-1: #9aa6b8;
+  --text-2: #5d6878;
+  --accent: #7fd4ff;
+  --accent-2: #9aa5ff;
+  --accent-3: #b9c3f0;
   --danger: #fb7185;
   --ok: #4ade80;
-  --warn: #fbbf24;
+  --warn: #d8c99b;
   --radius: 16px;
   --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui,
     -apple-system, sans-serif;
@@ -33,9 +33,9 @@ body {
   font-family: var(--font-sans);
   color: var(--text-0);
   background:
-    radial-gradient(1200px 700px at 50% 20%, rgba(40, 52, 96, 0.55), transparent 60%),
-    radial-gradient(900px 600px at 85% 90%, rgba(74, 40, 110, 0.35), transparent 60%),
-    linear-gradient(160deg, var(--bg-0), var(--bg-1) 55%, #0a0f1e);
+    radial-gradient(1000px 620px at 50% 8%, rgba(36, 58, 106, 0.3), transparent 62%),
+    radial-gradient(760px 480px at 88% 92%, rgba(52, 42, 96, 0.2), transparent 62%),
+    #000000;
   background-attachment: fixed;
   overflow-x: hidden;
 }
@@ -648,80 +648,131 @@ button {
   letter-spacing: 1px;
 }
 
-/* ============ 报告 ============ */
+/* ============ 报告：第三性的观察 ============ */
 .report-scroll {
   width: 100%;
   min-height: 100vh;
-  padding: 40px 20px;
+  padding: 48px 20px;
   display: flex;
   justify-content: center;
 }
 
 .report {
   width: 100%;
-  max-width: 680px;
-  padding: 40px 48px;
+  max-width: 660px;
+  padding: 48px 52px;
+  background: rgba(8, 10, 16, 0.66);
+  border: 1px solid rgba(140, 165, 210, 0.12);
+  border-radius: 20px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
 }
 
 .report-head {
   text-align: center;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 26px;
+  border-bottom: 1px solid rgba(140, 165, 210, 0.12);
 }
 
 .report-eyebrow {
   font-size: 12px;
-  letter-spacing: 4px;
+  letter-spacing: 6px;
   color: var(--text-2);
-  margin-bottom: 10px;
 }
 
-.report-score {
+.report-ornament {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
+  margin-top: 16px;
 }
-
-.score-num {
-  font-size: 84px;
-  font-weight: 800;
-  line-height: 1;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.report-ornament span {
+  width: 64px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(127, 212, 255, 0.5), transparent);
 }
-
-.score-den {
-  font-size: 26px;
-  color: var(--text-2);
-}
-
-.score-label {
-  display: inline-block;
-  margin-top: 10px;
-  font-size: 15px;
-  letter-spacing: 3px;
-  padding: 6px 20px;
-  border-radius: 999px;
-}
-.score-0 { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
-.score-1 { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
-.score-2 { background: rgba(251, 191, 36, 0.15); color: #fcd34d; }
-.score-3 { background: rgba(74, 222, 128, 0.15); color: #86efac; }
 
 .report-section {
-  padding: 22px 0;
-  border-bottom: 1px solid var(--panel-border);
+  padding: 24px 0;
+  border-bottom: 1px solid rgba(140, 165, 210, 0.1);
 }
 
 .report-h {
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: var(--text-2);
+  margin-bottom: 16px;
+}
+
+/* 关键词：冷色描边幽灵 chip */
+.chip-cold {
+  background: rgba(127, 212, 255, 0.06);
+  border: 1px solid rgba(127, 212, 255, 0.22);
+  color: #cfe6f7;
+  letter-spacing: 2px;
+}
+
+/* 情绪化推测：时间线式 */
+.inferences {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inference {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.inference-mark {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  margin-top: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(127, 212, 255, 0.8);
+}
+
+.inference-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--text-0);
+  letter-spacing: 0.5px;
+}
+
+/* 名言 */
+.report-quote-section {
+  text-align: center;
+  padding: 34px 10px 30px;
+}
+
+.quote-mark {
+  font-size: 40px;
+  line-height: 1;
+  color: rgba(127, 212, 255, 0.35);
+  margin-bottom: 6px;
+}
+
+.report-quote {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 2;
+  letter-spacing: 1px;
+  color: #e8eef7;
+}
+
+.quote-author {
+  margin-top: 14px;
   font-size: 13px;
   letter-spacing: 3px;
   color: var(--text-2);
-  margin-bottom: 14px;
 }
 
+/* 维度：统一冷色条 */
 .dims {
   display: flex;
   flex-direction: column;
@@ -735,7 +786,7 @@ button {
 }
 
 .dim-name {
-  width: 88px;
+  width: 96px;
   font-size: 13px;
   color: var(--text-1);
   flex-shrink: 0;
@@ -748,15 +799,15 @@ button {
 .dim-val {
   width: 34px;
   text-align: right;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--text-0);
+  color: var(--text-1);
 }
 
 .report-desc {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 2.1;
   color: var(--text-0);
   letter-spacing: 0.5px;
@@ -770,7 +821,7 @@ button {
 }
 
 .report-ethics {
-  padding-top: 18px;
+  padding-top: 20px;
   font-size: 12px;
   color: var(--text-2);
   letter-spacing: 1px;
@@ -788,5 +839,5 @@ button {
 .report-actions {
   display: flex;
   justify-content: center;
-  padding-top: 20px;
+  padding-top: 24px;
 }

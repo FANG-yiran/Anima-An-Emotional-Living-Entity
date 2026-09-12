@@ -434,3 +434,36 @@ export const QUESTIONNAIRE_ITEMS = [
 
 export const ETHICS_NOTE =
   "本结果仅反映本次交互中的行为倾向，不构成心理诊断。";
+
+// ---- 情绪化推测文案（规则引擎回退用，文档 §5.1） ----
+export const INFERENCE_TEXTS: Record<ActionType, string> = {
+  approach: "你悄悄接近，Animo 感到一丝温暖，试着朝你靠近。",
+  retreat: "你突然退开，Animo 感到不安，缩回了自己的边缘。",
+  pause: "你停了下来，Animo 犹豫着，是否应该走向你。",
+  reach: "你伸手触碰，Animo 颤抖了一下，把这个瞬间记住。",
+  glide: "你快速经过，Animo 还没来得及回应，你就已经走了。",
+  leave: "你转身离开，Animo 渐渐散开，等待下一次被看见。",
+  dblclick: "你唤醒了它，Animo 从弥散中聚拢，第一次看向你。",
+  hold: "你与它一同呼吸，Animo 感到前所未有的平静。",
+  drag: "你牵着它移动，Animo 顺从地跟随，信任在生长。",
+  still: "你静静守候，Animo 慢慢靠近，试探着触碰你。",
+};
+
+// ---- 哲理性名言库（规则引擎回退用） ----
+export interface Quote {
+  text: string;
+  author: string;
+}
+
+export const QUOTE_LIB: Quote[] = [
+  { text: "我们拥有的不是太少，而是太多；我们看见的不是太少，而是没有真正去看。", author: "王尔德" },
+  { text: "有些人在黑暗中找到光，有些人只在黑暗中等待。", author: "黑塞" },
+  { text: "一个人必须像树一样，独自站立，承受自己的风雨。", author: "黑塞" },
+  { text: "你望向深渊，深渊也在望向你。", author: "尼采" },
+  { text: "真正的爱不是占有，而是让彼此成为更完整的自己。", author: "里尔克" },
+  { text: "你被看见的那一刻，才是你真正存在的开始。", author: "佚名" },
+  { text: "关系是一场漫长的对话，沉默也是它的语言。", author: "佚名" },
+  { text: "孤独不是没有人，而是没有被真正看见。", author: "佚名" },
+  { text: "你靠近时的温暖，和离开时的凉意，都是同一种真实。", author: "佚名" },
+  { text: "在相遇之前，我们都已经孤独了很久。", author: "佚名" },
+];
