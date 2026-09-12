@@ -3,19 +3,24 @@
   --bg-1: #06070c;
   --bg-2: #0b0d15;
   --panel: rgba(9, 12, 20, 0.72);
-  --panel-border: rgba(140, 165, 210, 0.14);
-  --text-0: #eef2f8;
-  --text-1: #9aa6b8;
-  --text-2: #5d6878;
+  --panel-border: rgba(140, 165, 210, 0.18);
+  /* 暗底可读性：text-2 提亮，避免 0.5 不透明度叠灰字 */
+  --text-0: #f2f5fa;
+  --text-1: #c3ccd9;
+  --text-2: #93a0b2;
   --accent: #7fd4ff;
   --accent-2: #9aa5ff;
   --accent-3: #b9c3f0;
   --danger: #fb7185;
   --ok: #4ade80;
-  --warn: #d8c99b;
+  --warn: #e0d2a8;
   --radius: 16px;
   --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui,
     -apple-system, sans-serif;
+  /* 诗句：新宋体/宋体系；作者：楷体系 */
+  --font-poem: "新宋体", "NSimSun", "SimSun", "宋体", "Songti SC", "STSong",
+    "Noto Serif SC", "Source Han Serif SC", serif;
+  --font-kai: "楷体", "KaiTi", "STKaiti", "Kaiti SC", "楷体_GB2312", serif;
 }
 
 * {
@@ -73,7 +78,7 @@ button {
 .btn.ghost {
   background: transparent;
   color: var(--text-1);
-  border: 1px solid var(--panel-border);
+  border: 1px solid rgba(140, 165, 210, 0.32);
   box-shadow: none;
   letter-spacing: 1px;
   font-size: 15px;
@@ -239,6 +244,7 @@ button {
   font-size: 12px;
   color: var(--text-2);
   letter-spacing: 1px;
+  opacity: 1;
 }
 
 /* ============ 交互舞台 ============ */
@@ -259,8 +265,8 @@ button {
   font-size: 21px;
   font-weight: 400;
   letter-spacing: 0.22em;
-  color: rgba(238, 242, 255, 0.66);
-  text-shadow: 0 0 22px rgba(110, 231, 255, 0.25);
+  color: rgba(240, 245, 252, 0.92);
+  text-shadow: 0 0 22px rgba(110, 231, 255, 0.35);
   font-variant-numeric: tabular-nums;
 }
 
@@ -369,7 +375,7 @@ button {
 
 .modal-sub {
   margin: 0 0 20px;
-  color: var(--text-2);
+  color: var(--text-1);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -439,7 +445,7 @@ button {
 
 .q-scale-label {
   font-size: 12px;
-  color: var(--text-2);
+  color: var(--text-1);
   min-width: 70px;
 }
 
@@ -521,198 +527,145 @@ button {
   color: var(--text-1);
   font-size: 14px;
   letter-spacing: 1px;
+  line-height: 1.8;
+  max-width: 420px;
 }
 
-/* ============ 报告：第三性的观察 ============ */
+/* ============ 报告：一句诗 + 客观记录 ============ */
 .report-scroll {
   width: 100%;
   min-height: 100vh;
-  padding: 48px 20px;
+  padding: 64px 24px;
   display: flex;
   justify-content: center;
+  align-items: center;
 }
 
-.report {
+.report.poem-card {
   width: 100%;
-  max-width: 660px;
-  padding: 48px 52px;
-  background: rgba(8, 10, 16, 0.66);
-  border: 1px solid rgba(140, 165, 210, 0.12);
-  border-radius: 20px;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
-}
-
-.report-head {
-  text-align: center;
-  padding-bottom: 26px;
-  border-bottom: 1px solid rgba(140, 165, 210, 0.12);
-}
-
-.report-eyebrow {
-  font-size: 12px;
-  letter-spacing: 6px;
-  color: var(--text-2);
-}
-
-.report-ornament {
+  max-width: 520px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  box-shadow: none;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  gap: 48px;
+  animation: poem-in 1.4s ease both;
+}
+
+@keyframes poem-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.poem-head {
+  display: flex;
   justify-content: center;
-  margin-top: 16px;
-}
-.report-ornament span {
-  width: 64px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(127, 212, 255, 0.5), transparent);
 }
 
-.report-section {
-  padding: 24px 0;
-  border-bottom: 1px solid rgba(140, 165, 210, 0.1);
+.poem-eyebrow {
+  font-family: var(--font-kai);
+  font-size: 13px;
+  letter-spacing: 8px;
+  color: var(--text-1);
+  text-indent: 8px;
 }
 
-.report-h {
-  font-size: 12px;
-  letter-spacing: 4px;
-  color: var(--text-2);
-  margin-bottom: 16px;
-}
-
-/* 关键词：冷色描边幽灵 chip */
-.chip-cold {
-  background: rgba(127, 212, 255, 0.06);
-  border: 1px solid rgba(127, 212, 255, 0.22);
-  color: #cfe6f7;
-  letter-spacing: 2px;
-}
-
-/* 情绪化推测：时间线式 */
-.inferences {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.inference {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-}
-
-.inference-mark {
-  flex-shrink: 0;
-  width: 5px;
-  height: 5px;
-  margin-top: 11px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 8px rgba(127, 212, 255, 0.8);
-}
-
-.inference-text {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.9;
-  color: var(--text-0);
-  letter-spacing: 0.5px;
-}
-
-/* 名言 */
-.report-quote-section {
+.poem-hero {
   text-align: center;
-  padding: 34px 10px 30px;
-}
-
-.quote-mark {
-  font-size: 40px;
-  line-height: 1;
-  color: rgba(127, 212, 255, 0.35);
-  margin-bottom: 6px;
-}
-
-.report-quote {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 300;
-  line-height: 2;
-  letter-spacing: 1px;
-  color: #e8eef7;
-}
-
-.quote-author {
-  margin-top: 14px;
-  font-size: 13px;
-  letter-spacing: 3px;
-  color: var(--text-2);
-}
-
-/* 维度：统一冷色条 */
-.dims {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.dim-row {
-  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 26px;
+  max-width: 440px;
 }
 
-.dim-name {
-  width: 96px;
-  font-size: 13px;
-  color: var(--text-1);
-  flex-shrink: 0;
-}
-
-.dim-bar {
-  flex: 1;
-}
-
-.dim-val {
-  width: 34px;
-  text-align: right;
-  font-size: 14px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-1);
-}
-
-.report-desc {
+.poem-text {
   margin: 0;
-  font-size: 15px;
+  font-family: var(--font-poem);
+  font-size: clamp(24px, 4.6vw, 30px);
+  font-weight: 400;
   line-height: 2.1;
-  color: var(--text-0);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.18em;
+  color: #f4f7fb;
+  text-wrap: balance;
+  text-shadow: 0 0 28px rgba(127, 212, 255, 0.12);
 }
 
-.report-conflict {
-  margin: 14px 0 0;
-  font-size: 13px;
-  color: var(--warn);
-  line-height: 1.8;
+.poem-author {
+  font-family: var(--font-kai);
+  font-style: normal;
+  font-size: 15px;
+  letter-spacing: 4px;
+  color: var(--text-1);
 }
 
-.report-ethics {
-  padding-top: 20px;
+.poem-log {
+  width: 100%;
+  max-width: 380px;
+}
+
+.poem-log-label {
+  font-family: var(--font-kai);
   font-size: 12px;
+  letter-spacing: 5px;
   color: var(--text-2);
-  letter-spacing: 1px;
+  margin-bottom: 18px;
   text-align: center;
 }
 
-.report-source-note {
-  margin: 16px 0 0;
-  font-size: 12px;
-  color: var(--text-2);
-  text-align: center;
-  letter-spacing: 0.5px;
-}
-
-.report-actions {
+.poem-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  justify-content: center;
-  padding-top: 24px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.poem-log-item {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 1.75;
+}
+
+.poem-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: 100%;
+}
+
+.poem-ethics {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+  letter-spacing: 0.5px;
+  text-align: center;
+  line-height: 1.7;
+}
+
+.poem-restart {
+  font-size: 13px;
+  letter-spacing: 2px;
+  padding: 10px 28px;
+  color: var(--text-1);
+}
+.poem-restart:hover {
+  color: var(--text-0);
 }

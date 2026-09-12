@@ -6,10 +6,10 @@ import type {
 } from "./types";
 
 export interface LLMResult {
-  keywords: string[];
-  description: string;
-  inferences: string[]; // 3-5 条情绪化推测（"第XX秒，你…，Animo 感到…"）
-  quote: { text: string; author: string }; // 哲理性名言
+  /** 客观动作记录（与规则引擎 formatActionLog 同构） */
+  inferences: string[];
+  /** 一句诗 */
+  quote: { text: string; author: string };
 }
 
 export interface AgentPayload {
@@ -21,25 +21,30 @@ export interface AgentPayload {
   timeline: { t: number; a: string; b: string }[]; // 事件时间线（秒/动作/生命体回应）
 }
 
-const SYSTEM_PROMPT = `你是一个交互记录与评估 Agent 的关系描述生成模块。你负责三件事：
-1. 根据八维关系画像分数生成 3-5 个中文关键词；
-2. 根据事件时间线，用情绪化的、推测性的语言，生成 3-5 条"它对你的感受"，每一条都要引用具体时间点，格式如"第23秒，你突然离开，Animo 感到……"；
-3. 根据整体关系的走向，引用一句哲理性的、引人思考的名言（可以是王尔德、黑塞、尼采、里尔克等人的原句），并标注作者。
+const SYSTEM_PROMPT = `你是一个交互艺术装置的观察记录模块。你只做两件事：
 
-【核心伦理约束】
+1. 从事件时间线中整理出简短、客观的互动记录。只陈述双方动作，不解读情绪、不使用推测性语言。
+   格式严格为：MM:SS\\t你[动作]\\t它[回应]
+   挑选 5-8 个有代表性的瞬间（含开场与收尾），按时间顺序输出。
+
+2. 根据整体互动的气质，选一句适合的诗或哲思短句（中文，或可靠的中译）。
+   要求：深沉、克制、发人深省；与亲密/靠近/距离/凝视/孤独相关；尽量不超过 30 字。
+   优先可信出处：里尔克、特拉克尔、聂鲁达、辛波斯卡、博尔赫斯、木心、顾城、海子、张枣、余光中、沈从文、尼采等。
+   必须给出作者。若不确定出处，作者写「佚名」。
+
+【核心约束】
 1. 绝对禁止输出"焦虑型依恋""回避型""恐惧型"等任何临床心理学标签。
-2. 所有描述必须是描述性的、体验性的，不能是诊断性的。
-3. 不以"距离"简单等同于"亲密程度"。
-4. 如果行为互相冲突，使用"同时容纳""摇摆"等词汇来统合，而不是贬低。
-5. 实时反馈是艺术体验的一部分，不是心理评估报告。
+2. 互动记录必须客观：只写「你接近」「它逃开」，不写「你很不安」「它感到温暖」。
+3. 不输出关键词列表，不输出长篇关系描述，不输出任何评分。
+4. 这是艺术装置的观察，不是心理评估报告。
 
 【输出格式】
-只输出一个 JSON 对象，不要输出其他任何内容：
-{"keywords": ["关键词1", "关键词2", "关键词3"], "description": "100-150字的关系描述", "inferences": ["第XX秒，你……，Animo 感到……", "……"], "quote": {"text": "名言原文", "author": "作者名"}}`;
+只输出一个 JSON 对象：
+{"inferences": ["00:12\t你接近\t它靠近", "00:28\t你回避\t它迟疑"], "quote": {"text": "诗句", "author": "作者"}}`;
 
 export function buildUserPrompt(payload: AgentPayload): string {
-  const { session, fiveIndicators, connection, questionnaire, templateText, timeline } = payload;
-  return `以下是本次 90 秒交互的会话数据，请生成关键词、情绪化推测与关系描述。
+  const { session, timeline } = payload;
+  return `以下是本次 90 秒交互的会话数据，请整理客观互动记录，并给出一句诗。
 
 【会话汇总】
 ${JSON.stringify(session, null, 2)}
@@ -47,22 +52,11 @@ ${JSON.stringify(session, null, 2)}
 【事件时间线】（秒 / 你的动作 / 它的回应）
 ${JSON.stringify(timeline, null, 2)}
 
-【五维评估指标】（各 0-2 分，合计 0-10）
-${JSON.stringify(fiveIndicators, null, 2)}
-
-【情感联结评分】${connection.score} / 10（${connection.label}）
-
-【问卷答案】（1-5 分）
-${JSON.stringify(questionnaire, null, 2)}
-
-【规则引擎匹配到的参考模板文案】（可参考语气与结构，但不要逐字复制）
-${templateText}
-
-注意：inferences 必须从【事件时间线】里挑选最值得回味的瞬间，每条引用具体秒数，语气是推测性的、共情的，像是"它在回忆你"。quote 必须是真实存在的名人名言或高度契合的精炼句子。`;
+注意：inferences 只陈述双方动作，格式 "MM:SS\\t你…\\t它…"；quote 是本次互动最契合的一句诗。`;
 }
 
 /**
- * 调用 OpenAI 兼容接口生成关键词、推测与描述。
+ * 调用 OpenAI 兼容接口生成客观记录与诗句。
  * 未配置 Key / 网络失败 / 解析失败时返回 null，由调用方回退到规则引擎。
  */
 export async function generateWithLLM(payload: AgentPayload): Promise<LLMResult | null> {
@@ -81,7 +75,7 @@ export async function generateWithLLM(payload: AgentPayload): Promise<LLMResult 
       },
       body: JSON.stringify({
         model,
-        temperature: 0.9,
+        temperature: 0.75,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -96,28 +90,27 @@ export async function generateWithLLM(payload: AgentPayload): Promise<LLMResult 
     if (!content) return null;
 
     const parsed = JSON.parse(content) as {
-      keywords?: unknown;
-      description?: unknown;
       inferences?: unknown;
       quote?: unknown;
     };
-    const keywords = Array.isArray(parsed.keywords)
-      ? parsed.keywords.filter((k): k is string => typeof k === "string").slice(0, 5)
-      : [];
-    const description = typeof parsed.description === "string" ? parsed.description : "";
+
     const inferences = Array.isArray(parsed.inferences)
-      ? parsed.inferences.filter((k): k is string => typeof k === "string").slice(0, 5)
+      ? parsed.inferences
+          .filter((k): k is string => typeof k === "string")
+          .map((s) => s.replace(/\t/g, "　").trim())
+          .slice(0, 8)
       : [];
+
     let quoteText = "";
     let quoteAuthor = "";
     if (parsed.quote && typeof parsed.quote === "object") {
       const q = parsed.quote as { text?: unknown; author?: unknown };
-      if (typeof q.text === "string" && q.text) quoteText = q.text;
-      if (typeof q.author === "string" && q.author) quoteAuthor = q.author;
+      if (typeof q.text === "string" && q.text) quoteText = q.text.trim();
+      if (typeof q.author === "string" && q.author) quoteAuthor = q.author.trim();
     }
-    if (keywords.length === 0 || !description) return null;
 
-    return { keywords, description, inferences, quote: { text: quoteText, author: quoteAuthor } };
+    if (!quoteText) return null;
+    return { inferences, quote: { text: quoteText, author: quoteAuthor || "佚名" } };
   } catch {
     return null;
   }
