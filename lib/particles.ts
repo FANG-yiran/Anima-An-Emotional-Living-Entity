@@ -282,14 +282,4 @@ export function drawParticles(
     ctx.fill();
   }
   ctx.restore();
-
-  // 接触圈（点击判定范围）
-  ctx.save();
-  ctx.setLineDash([4, 7]);
-  ctx.strokeStyle = `rgba(110,231,255,${0.18 + manifestProgress * 0.12})`;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(c.x, c.y, 70, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
 }

@@ -134,7 +134,7 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
   );
 }
 
-/** Canvas 场景绘制：粒子生命体 + 显式连线 + 聚形时的眼睛/嘴 */
+/** Canvas 场景绘制：粒子生命体 + 显式连线（不绘制人脸轮廓，保持无固定外形的弥散感） */
 function drawScene(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -145,7 +145,7 @@ function drawScene(
   burstUntil: number
 ) {
   ctx.clearRect(0, 0, w, h);
-  const { entityPos: pos, state, cursorPos, manifestProgress } = snap;
+  const { entityPos: pos, cursorPos, manifestProgress } = snap;
 
   if (particles && particles.length > 0) {
     drawParticles(ctx, particles, snap, now, w, h, { burstUntil });
@@ -161,54 +161,6 @@ function drawScene(
       ctx.beginPath();
       ctx.moveTo(cursorPos.x, cursorPos.y);
       ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-    }
-  }
-
-  // 聚形成"身体"时叠加眼睛与嘴（manifest > 0.5）
-  if (manifestProgress > 0.5) {
-    const breathe = 1 + 0.05 * Math.sin(now / 420);
-    const r = 30 * breathe + state.axis_arousal * 4;
-    const safety = state.axis_safety;
-
-    // 眼睛：安全时看向光标，防御时警觉乱转
-    const eyeY = pos.y - r * 0.08;
-    const eyeDX = r * 0.34;
-    let lookX = 0;
-    let lookY = 0;
-    if (cursorPos && safety > 0.45) {
-      const dx = cursorPos.x - pos.x;
-      const dy = cursorPos.y - eyeY;
-      const dd = Math.hypot(dx, dy) || 1;
-      lookX = (dx / dd) * 3.5;
-      lookY = (dy / dd) * 3.5;
-    } else if (safety < 0.3) {
-      lookX = (Math.random() - 0.5) * 7;
-      lookY = (Math.random() - 0.5) * 7;
-    }
-    ctx.fillStyle = "rgba(8,11,22,0.92)";
-    ctx.beginPath();
-    ctx.arc(pos.x - eyeDX + lookX, eyeY + lookY, 5.2, 0, Math.PI * 2);
-    ctx.arc(pos.x + eyeDX + lookX, eyeY + lookY, 5.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 嘴：安全微笑 / 高唤起惊讶 / 防御平线
-    const mouthY = pos.y + r * 0.38;
-    ctx.strokeStyle = "rgba(8,11,22,0.85)";
-    ctx.lineWidth = 2.2;
-    ctx.lineCap = "round";
-    if (safety > 0.55) {
-      ctx.beginPath();
-      ctx.arc(pos.x, mouthY, r * 0.18, 0.2 * Math.PI, 0.8 * Math.PI);
-      ctx.stroke();
-    } else if (state.axis_arousal > 0.6) {
-      ctx.beginPath();
-      ctx.arc(pos.x, mouthY, r * 0.11, 0, Math.PI * 2);
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(pos.x - r * 0.16, mouthY);
-      ctx.lineTo(pos.x + r * 0.16, mouthY);
       ctx.stroke();
     }
   }
