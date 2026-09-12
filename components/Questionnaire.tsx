@@ -126,7 +126,6 @@ export default function Questionnaire({ onSubmit }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [idle, setIdle] = useState(false);
-  const [hover, setHover] = useState<number | null>(null);
   const answersRef = useRef<Partial<QuestionnaireAnswers>>({});
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timersRef = useRef<number[]>([]);
@@ -174,7 +173,6 @@ export default function Questionnaire({ onSubmit }: Props) {
             setSelected(null);
             setLeaving(false);
             setIdle(false);
-            setHover(null);
           }
         }, Q_OUT);
       }, SELECT_HOLD);
@@ -204,29 +202,32 @@ export default function Questionnaire({ onSubmit }: Props) {
         >
           <p className="ritual-q-text">{q.text}</p>
 
-          <div className="ritual-options" role="radiogroup" aria-label="1 完全不同意 — 5 完全同意">
-            {[1, 2, 3, 4, 5].map((v, i) => (
-              <div
-                key={v}
-                className={`ritual-opt-wrap ${hover === v || selected === v ? "show-label" : ""}`}
-              >
-                <button
-                  className={`ritual-opt ${selected === v ? "is-selected" : ""} ${selected !== null && selected !== v ? "is-dim" : ""}`}
-                  style={{ animationDelay: `${i * 0.1}s` }}
-                  role="radio"
-                  aria-checked={selected === v}
-                  aria-label={`${SCALE_LABELS[v - 1]}，${v} 分`}
-                  onMouseEnter={() => setHover(v)}
-                  onMouseLeave={() => setHover(null)}
-                  onFocus={() => setHover(v)}
-                  onBlur={() => setHover(null)}
-                  onClick={() => choose(v)}
-                ></button>
-                <span className="ritual-opt-label" aria-hidden="true">
-                  {SCALE_LABELS[v - 1]}
-                </span>
-              </div>
-            ))}
+          <div
+            className="ritual-options"
+            role="radiogroup"
+            aria-label="1 不同意 — 5 同意"
+          >
+            {[1, 2, 3, 4, 5].map((v, i) => {
+              const d = Math.abs(v - 3);
+              const sizeCls = d === 0 ? "sz-mid" : d === 1 ? "sz-m" : "sz-lg";
+              return (
+                <div key={v} className="ritual-opt-wrap">
+                  <button
+                    className={`ritual-opt ${sizeCls} ${selected === v ? "is-selected" : ""} ${selected !== null && selected !== v ? "is-dim" : ""}`}
+                    style={{ animationDelay: `${i * 0.1}s` }}
+                    role="radio"
+                    aria-checked={selected === v}
+                    aria-label={`${SCALE_LABELS[v - 1]}，${v} 分`}
+                    onClick={() => choose(v)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="ritual-scale-ends" aria-hidden="true">
+            <span>不同意</span>
+            <span>同意</span>
           </div>
 
           {idle && <p className="ritual-hint">它仍在等你</p>}

@@ -884,18 +884,18 @@ button {
   max-width: 720px;
 }
 
-/* 选项：5 个圆，光晕边框，悬停放大，选中径向光 + 旋转符文环 */
+/* 选项：5 个圆，中间最小、向两端渐大；两端仅各一句标注 */
 .ritual-options {
   display: flex;
-  gap: clamp(10px, 2.6vw, 24px);
+  gap: clamp(10px, 2.4vw, 22px);
   justify-content: center;
   align-items: center;
 }
 
 .ritual-opt {
   position: relative;
-  width: clamp(52px, 9vw, 64px);
-  height: clamp(52px, 9vw, 64px);
+  width: clamp(40px, 7vw, 48px);
+  height: clamp(40px, 7vw, 48px);
   border-radius: 50%;
   background: transparent;
   border: 1px solid rgba(255, 215, 140, 0.35);
@@ -903,9 +903,6 @@ button {
     0 0 8px rgba(255, 220, 150, 0.3),
     inset 0 0 10px rgba(255, 220, 150, 0.08);
   color: #ffd78c;
-  font-family: var(--font-poem);
-  font-weight: 700;
-  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -915,6 +912,20 @@ button {
     box-shadow 0.2s ease,
     border-color 0.2s ease,
     opacity 0.3s ease;
+}
+
+/* 中间 3 最小，2/4 中等，1/5 最大 */
+.ritual-opt.sz-mid {
+  width: clamp(40px, 6.5vw, 46px);
+  height: clamp(40px, 6.5vw, 46px);
+}
+.ritual-opt.sz-m {
+  width: clamp(52px, 8.5vw, 62px);
+  height: clamp(52px, 8.5vw, 62px);
+}
+.ritual-opt.sz-lg {
+  width: clamp(64px, 10.5vw, 78px);
+  height: clamp(64px, 10.5vw, 78px);
 }
 
 @keyframes ritual-pop {
@@ -981,30 +992,24 @@ button {
   opacity: 0.3;
 }
 
-/* 每个选项的纵向包裹：圆 + 下方标签 */
+/* 选项纵向包裹：仅圆，无下方逐项标签 */
 .ritual-opt-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
 }
 
-.ritual-opt-label {
+/* 量表两端标注 */
+.ritual-scale-ends {
+  display: flex;
+  justify-content: space-between;
+  width: min(360px, 82vw);
+  margin: 18px auto 0;
   font-family: var(--font-poem);
-  font-weight: 700;
-  font-size: clamp(12px, 1.8vw, 14px);
-  letter-spacing: 0.15em;
-  color: #f5e6d3;
-  white-space: nowrap;
-  text-shadow: 0 0 12px rgba(255, 215, 140, 0.45);
-  opacity: 0;
-  transform: translateY(5px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.ritual-opt-wrap.show-label .ritual-opt-label {
-  opacity: 1;
-  transform: translateY(0);
+  font-size: clamp(12px, 1.7vw, 13px);
+  letter-spacing: 0.22em;
+  color: rgba(245, 230, 211, 0.78);
+  text-shadow: 0 0 12px rgba(255, 215, 140, 0.3);
 }
 
 .ritual-hint {
