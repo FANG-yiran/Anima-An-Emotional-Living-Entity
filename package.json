@@ -1,0 +1,22 @@
+{
+  "name": "anima-interactive-assessment",
+  "version": "2.0.0",
+  "private": true,
+  "description": "情绪生命体交互评估系统 —— 3 分钟自由交互，Agent 实时监测，输出情感联结评分与七维关系画像",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "typescript": "^5.7.3"
+  }
+}

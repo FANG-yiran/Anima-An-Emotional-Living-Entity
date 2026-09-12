@@ -1,0 +1,163 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+import InteractionStage from "@/components/InteractionStage";
+import MonitoringPanel from "@/components/MonitoringPanel";
+import Questionnaire from "@/components/Questionnaire";
+import ReportView from "@/components/ReportView";
+import StartScreen from "@/components/StartScreen";
+import { AnimaEngine } from "@/lib/engine";
+import {
+  buildRuleReport,
+  matchTemplate,
+} from "@/lib/report";
+import {
+  computeFiveIndicators,
+  computeSevenScores,
+  connectionFromIndicators,
+  fuseWithQuestionnaire,
+} from "@/lib/scoring";
+import { buildSessionLog } from "@/lib/session";
+import type {
+  EngineSnapshot,
+  EventLogEntry,
+  QuestionnaireAnswers,
+  ReportData,
+} from "@/lib/types";
+
+type Stage = "start" | "interacting" | "questionnaire" | "generating" | "report";
+
+export default function Home() {
+  const [stage, setStage] = useState<Stage>("start");
+  const engineRef = useRef<AnimaEngine | null>(null);
+  const sessionRef = useRef<{ events: EventLogEntry[]; durationSec: number } | null>(null);
+  const [snapshot, setSnapshot] = useState<EngineSnapshot | null>(null);
+  const [events, setEvents] = useState<EventLogEntry[]>([]);
+  const [report, setReport] = useState<ReportData | null>(null);
+
+  const handleEnd = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const result = engine.finish();
+    sessionRef.current = result;
+    setStage("questionnaire");
+  }, []);
+
+  const startSession = useCallback(() => {
+    const engine = new AnimaEngine({
+      onEvent: (entry, snap) => {
+        setEvents((prev) => [...prev.slice(-59), entry]);
+        setSnapshot(snap);
+      },
+      onComplete: handleEnd,
+    });
+    engineRef.current = engine;
+    setSnapshot(null);
+    setEvents([]);
+    setStage("interacting");
+  }, [handleEnd]);
+
+  const handleSnapshot = useCallback((snap: EngineSnapshot) => {
+    setSnapshot(snap);
+  }, []);
+
+  const handleQuestionnaire = useCallback(
+    async (answers: QuestionnaireAnswers) => {
+      const session = sessionRef.current;
+      if (!session) return;
+      setStage("generating");
+
+      // ---- 确定性计算（始终本地完成） ----
+      const behaviorScores = computeSevenScores(session.events, session.durationSec);
+      const { scores, conflictNote } = fuseWithQuestionnaire(behaviorScores, answers);
+      const five = computeFiveIndicators(session.events, session.durationSec);
+      const conn = connectionFromIndicators(five);
+      const sessionLog = buildSessionLog(session.events, session.durationSec, scores);
+      const tpl = matchTemplate(scores);
+      const ruleReport: ReportData = buildRuleReport(conn.score, conn.label, scores, conflictNote);
+      setReport(ruleReport);
+      setStage("report");
+
+      // ---- LLM Agent 增强（失败自动回退规则版） ----
+      try {
+        const res = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session: sessionLog,
+            fiveIndicators: five,
+            connection: conn,
+            questionnaire: answers,
+            templateText: tpl.text,
+          }),
+        });
+        const data = await res.json();
+        if (!data.fallback && Array.isArray(data.keywords) && data.keywords.length && data.description) {
+          setReport({
+            ...ruleReport,
+            keywords: data.keywords.slice(0, 5),
+            description: data.description,
+          });
+        }
+      } catch {
+        // 保持规则版报告
+      }
+    },
+    []
+  );
+
+  const restart = useCallback(() => {
+    engineRef.current = null;
+    sessionRef.current = null;
+    setReport(null);
+    setSnapshot(null);
+    setEvents([]);
+    setStage("start");
+  }, []);
+
+  if (stage === "start" || stage === "interacting") {
+    return (
+      <main className={`app-root ${stage === "interacting" ? "app-root--stage" : ""}`}>
+        {stage === "start" ? (
+          <StartScreen onStart={startSession} />
+        ) : (
+          <>
+            <InteractionStage
+              engine={engineRef.current!}
+              snapshot={snapshot}
+              onSnapshot={handleSnapshot}
+              onEnd={handleEnd}
+            />
+            <MonitoringPanel snapshot={snapshot} events={events} />
+          </>
+        )}
+      </main>
+    );
+  }
+
+  if (stage === "questionnaire") {
+    return (
+      <main className="app-root">
+        <Questionnaire onSubmit={handleQuestionnaire} />
+      </main>
+    );
+  }
+
+  if (stage === "generating") {
+    return (
+      <main className="app-root">
+        <div className="generating">
+          <div className="generating-orb" aria-hidden="true" />
+          <div className="loading-text">正在整理这面关系之镜…</div>
+          <p className="generating-sub">你的动作、它的回应，以及你写在问卷里的感受，正在被编织在一起。</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="app-root">
+      {report && <ReportView report={report} onRestart={restart} />}
+    </main>
+  );
+}

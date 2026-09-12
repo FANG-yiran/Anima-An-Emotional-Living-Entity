@@ -1,0 +1,390 @@
+// ============ 常量与配置 ============
+import type {
+  ActionType,
+  AxisKey,
+  EntityBehavior,
+  InternalState,
+  Phase,
+  SevenDimKey,
+} from "./types";
+
+// ---- 鼠标动作空间阈值（文档 §2.1） ----
+export const ACTION = {
+  APPROACH_DIST_DELTA: 30, // 距离缩小超过 30px 判定 approach
+  RETREAT_DIST_DELTA: 30, // 距离增大超过 30px 判定 retreat
+  PAUSE_DURATION: 500, // 光标停止 ≥ 0.5s → pause
+  REACH_RADIUS: 70, // 生命体附近点击半径 R
+  GLIDE_SPEED: 420, // 快速经过速度阈值 V（px/s）
+  GLIDE_MAX_DWELL: 200, // 停留 < 0.2s
+  LEAVE_DURATION: 3000, // 停止操作 ≥ 3s → leave
+  MIN_EVENT_INTERVAL: 350, // 两次动作事件最小间隔（ms）
+  SESSION_DURATION: 90, // 90 秒（s）
+  STATE_UPDATE_INTERVAL: 100, // 内部状态更新间隔（ms）
+  ENTITY_UPDATE_INTERVAL: 50, // 生命体运动更新间隔（ms）
+} as const;
+
+// ---- 内部状态核心轴配置（文档 §2.2） ----
+export const AXIS_CONFIG: Record<
+  AxisKey,
+  { decay: number; baseline: number; initial: number; label: string }
+> = {
+  axis_approach: { decay: 0.02, baseline: 0.5, initial: 0.5, label: "接近-回避" },
+  axis_safety: { decay: 0.015, baseline: 0.4, initial: 0.3, label: "安全-防御" },
+  axis_arousal: { decay: 0.03, baseline: 0.3, initial: 0.4, label: "情绪强度" },
+  axis_memory: { decay: 0.005, baseline: 0.2, initial: 0.2, label: "记忆-期待" },
+};
+
+/** 高斯噪声 σ（文档 §2.2/§7.3） */
+export const NOISE_SIGMA = 0.02;
+
+/** 响应延迟范围（ms）（文档 §7.4） */
+export const LATENCY = { MIN: 100, MAX: 500 } as const;
+
+// ---- 增量映射表 f(用户动作, 当前状态)（文档 §2.2） ----
+export function incrementFor(
+  action: ActionType,
+  s: InternalState
+): Partial<Record<AxisKey, number>> {
+  switch (action) {
+    case "approach":
+      if (s.axis_safety < 0.4)
+        return { axis_approach: 0.15, axis_safety: -0.1, axis_arousal: 0.08, axis_memory: 0.05 };
+      if (s.axis_safety > 0.6)
+        return { axis_approach: 0.1, axis_safety: 0.05, axis_arousal: 0.04, axis_memory: 0.06 };
+      return { axis_approach: 0.12, axis_safety: 0.02, axis_arousal: 0.06, axis_memory: 0.05 };
+    case "retreat":
+      return { axis_approach: -0.12, axis_safety: 0.08, axis_arousal: -0.03, axis_memory: 0.02 };
+    case "pause":
+      return s.axis_arousal < 0.5
+        ? { axis_approach: 0.02, axis_safety: 0.06, axis_arousal: -0.05, axis_memory: 0.04 }
+        : { axis_approach: 0.02, axis_safety: 0.02, axis_arousal: -0.08, axis_memory: 0.04 };
+    case "reach":
+      return s.axis_safety < 0.35
+        ? { axis_approach: 0.1, axis_safety: -0.15, axis_arousal: 0.2, axis_memory: 0.08 }
+        : { axis_approach: 0.06, axis_safety: 0.08, axis_arousal: 0.12, axis_memory: 0.1 };
+    case "glide":
+      return { axis_approach: -0.04, axis_safety: -0.03, axis_arousal: 0.05, axis_memory: -0.01 };
+    case "leave":
+      return { axis_approach: -0.1, axis_safety: 0.03, axis_arousal: -0.08, axis_memory: -0.05 };
+  }
+}
+
+// ---- 阶段划分（文档 §2.3） ----
+export const PHASES: { phase: Phase; start: number; end: number; label: string }[] = [
+  { phase: "exploration", start: 0, end: 22, label: "探索期" },
+  { phase: "repetition", start: 22, end: 52, label: "重复期" },
+  { phase: "deepening", start: 52, end: 75, label: "深化期" },
+  { phase: "closure", start: 75, end: 90, label: "收束期" },
+];
+
+export function phaseFor(elapsedSec: number): Phase {
+  for (const p of PHASES) {
+    if (elapsedSec >= p.start && elapsedSec < p.end) return p.phase;
+  }
+  return "closure";
+}
+
+// ---- 高/中/低阈值（用于模板匹配与关键词） ----
+export const SCORE_LEVEL = {
+  HIGH: 65,
+  LOW: 35,
+  VERY_HIGH: 85,
+  VERY_LOW: 20,
+} as const;
+
+// ---- 关键词库（文档 §5.1） ----
+export const KEYWORD_LIB: {
+  dim: SevenDimKey | "overall";
+  level: "high" | "low";
+  words: string[];
+}[] = [
+  { dim: "approach_tendency", level: "high", words: ["主动", "渴望连接", "靠近"] },
+  { dim: "confirmation_need", level: "high", words: ["渴望确认", "追索", "不安"] },
+  { dim: "rejection_sensitivity", level: "high", words: ["敏感", "警觉", "怕被拒绝"] },
+  { dim: "intimacy_tolerance", level: "high", words: ["从容", "接纳", "稳定"] },
+  { dim: "uncertainty_tolerance", level: "low", words: ["焦躁", "不安", "寻求确定"] },
+  { dim: "repair_tendency", level: "high", words: ["坚持", "修复", "不放弃"] },
+  { dim: "boundary", level: "high", words: ["距离", "自主", "边界感"] },
+  { dim: "boundary", level: "low", words: ["摇摆", "矛盾", "靠近又退"] },
+  { dim: "overall", level: "high", words: ["丰富", "多变", "鲜活", "有生命力"] },
+  { dim: "overall", level: "low", words: ["疏离", "模糊", "未唤醒", "克制"] },
+];
+
+// ---- 关系描述模板条件（文档 §5.2） ----
+export type CondOp = "high" | "low" | "mid" | "very_high" | "very_low";
+
+export interface TemplateCondition {
+  dim: SevenDimKey;
+  op: CondOp;
+}
+
+export interface Template {
+  id: number;
+  name: string;
+  conditions: TemplateCondition[];
+  text: string;
+}
+
+function cond(dim: SevenDimKey, op: CondOp): TemplateCondition {
+  return { dim, op };
+}
+
+export const TEMPLATES: Template[] = [
+  {
+    id: 1,
+    name: "渴望确认",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("confirmation_need", "high"),
+      cond("uncertainty_tolerance", "low"),
+      cond("repair_tendency", "high"),
+    ],
+    text: "你很愿意进入关系。当回应消失，你通常不会马上离开。你会尝试理解、确认，甚至重新靠近。真正让你不安的可能并不是距离，而是不确定。",
+  },
+  {
+    id: 2,
+    name: "安全从容",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("intimacy_tolerance", "high"),
+      cond("uncertainty_tolerance", "high"),
+      cond("boundary", "high"),
+    ],
+    text: "你能安然待在距离之外。你不急于定义，也不急于占有。你允许关系以它自己的速度展开。对你来说，连接不是必须立刻得到答案的谜题。",
+  },
+  {
+    id: 3,
+    name: "自我保护",
+    conditions: [
+      cond("approach_tendency", "low"),
+      cond("rejection_sensitivity", "high"),
+      cond("boundary", "high"),
+      cond("intimacy_tolerance", "low"),
+    ],
+    text: "你在靠近之前会先观察很久。你给了它空间，也给了自己退路。这九十秒里，你们之间保持了一种礼貌的距离——不是没有兴趣，而是靠近本身让你警觉。",
+  },
+  {
+    id: 4,
+    name: "接近-回避冲突",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("intimacy_tolerance", "low"),
+      cond("boundary", "low"),
+    ],
+    text: "你在靠近与退开之间摇摆。你想要连接，也害怕被吞没。最真实的瞬间，不是靠近或远离，而是你在这两者之间的犹豫。",
+  },
+  {
+    id: 5,
+    name: "执着修复",
+    conditions: [
+      cond("repair_tendency", "high"),
+      cond("rejection_sensitivity", "high"),
+      cond("confirmation_need", "mid"),
+    ],
+    text: "当它退开时，你感到刺痛，但你并没有真的放弃。你在寻找一个可以重新连接的缝隙。对你来说，关系中的断裂不是终点，而是下一次靠近的起点。",
+  },
+  {
+    id: 6,
+    name: "疏离旁观",
+    conditions: [
+      cond("approach_tendency", "low"),
+      cond("confirmation_need", "low"),
+      cond("repair_tendency", "low"),
+    ],
+    text: "你更像一位安静的观察者。你没有急于进入它的世界，也没有要求它进入你的。你留下了空间，也留下了未说出口的期待。",
+  },
+  {
+    id: 7,
+    name: "快速燃尽",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("confirmation_need", "high"),
+      cond("repair_tendency", "low"),
+    ],
+    text: "你很快进入了关系，也很快感受到了不确定。当它没有回应时，你尝试了，但你也选择了收回。你的热情真实，但你的耐心同样有限。",
+  },
+  {
+    id: 8,
+    name: "稳定陪伴",
+    conditions: [
+      cond("intimacy_tolerance", "high"),
+      cond("uncertainty_tolerance", "high"),
+      cond("repair_tendency", "high"),
+    ],
+    text: "你不急着定义这段关系。它在，你在，这已经足够。你容许它的不可预测性存在，也容许自己保持平静。这九十秒里，你们之间形成了一种松散的、但可呼吸的共处。",
+  },
+  {
+    id: 9,
+    name: "焦虑追索",
+    conditions: [
+      cond("confirmation_need", "high"),
+      cond("boundary", "low"),
+      cond("rejection_sensitivity", "high"),
+    ],
+    text: "你渴望一个明确的回应。当它沉默时，你很难不把这当作一种拒绝。你不断调整自己的动作，试图找到一个能触动它的方式。你想要的不是答案，而是一种被看见的确认。",
+  },
+  {
+    id: 10,
+    name: "淡漠疏离",
+    conditions: [
+      cond("approach_tendency", "low"),
+      cond("confirmation_need", "low"),
+      cond("boundary", "high"),
+    ],
+    text: "你与它保持着一个安全距离。你没有投入太多，也没有索取太多。你让这九十秒平静地流过，没有留下太多痕迹。",
+  },
+  {
+    id: 11,
+    name: "探索型联结",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("confirmation_need", "mid"),
+      cond("repair_tendency", "high"),
+      cond("uncertainty_tolerance", "high"),
+    ],
+    text: "你愿意靠近，但你不急于占有。你接受它的不可预测性，甚至对此感到好奇。你会在它退开时等待，也会在它靠近时迎接。你在这九十秒里，完成了一次真正的探索。",
+  },
+  {
+    id: 12,
+    name: "焦躁放弃",
+    conditions: [
+      cond("confirmation_need", "very_high"),
+      cond("uncertainty_tolerance", "very_low"),
+      cond("repair_tendency", "low"),
+    ],
+    text: "你非常需要回应，但当回应迟迟不来时，你选择了收回。你的热情被不确定感迅速消耗。你想要的是一扇打开的门，而不是一面沉默的墙。",
+  },
+  {
+    id: 13,
+    name: "谨慎坚持",
+    conditions: [
+      cond("rejection_sensitivity", "high"),
+      cond("repair_tendency", "high"),
+      cond("confirmation_need", "low"),
+    ],
+    text: "你对它的退开非常敏感，但你不会因此离开。你会停下来，等待，然后再次尝试。你相信连接是可能的，只是需要更多的耐心。",
+  },
+  {
+    id: 14,
+    name: "强边界观望",
+    conditions: [
+      cond("boundary", "high"),
+      cond("intimacy_tolerance", "low"),
+      cond("approach_tendency", "low"),
+    ],
+    text: "你为自己画了一条清晰的线。你靠近之前会先试探，试探之后可能会退开。你不喜欢失控的感觉，哪怕是在一段只有九十秒的关系里。",
+  },
+  {
+    id: 15,
+    name: "丰富联结",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("confirmation_need", "high"),
+      cond("intimacy_tolerance", "high"),
+      cond("repair_tendency", "high"),
+    ],
+    text: "你在这九十秒里展现了丰富的关系能力。你会主动靠近，也会接受不确定；你会感到不安，也会尝试修复。你允许自己体验这段关系，也允许自己保持完整。",
+  },
+  {
+    id: 16,
+    name: "未唤醒",
+    conditions: [
+      cond("approach_tendency", "low"),
+      cond("confirmation_need", "low"),
+      cond("rejection_sensitivity", "low"),
+      cond("intimacy_tolerance", "low"),
+      cond("repair_tendency", "low"),
+    ],
+    text: "这九十秒里，你与它之间没有发生太多故事。你保持了距离，它也保持了沉默。但这未必是遗憾——也许你只是在等待一个更值得靠近的瞬间。",
+  },
+  {
+    id: 17,
+    name: "焦急渴望",
+    conditions: [
+      cond("approach_tendency", "high"),
+      cond("confirmation_need", "high"),
+      cond("repair_tendency", "high"),
+      cond("uncertainty_tolerance", "low"),
+    ],
+    text: "你非常渴望连接，也非常害怕失去。当它不回应时，你会不断尝试。你的动作越来越急，因为你无法忍受这段关系停留在不确定之中。你想要的，只是一个清晰的信号。",
+  },
+  {
+    id: 18,
+    name: "平和独立",
+    conditions: [
+      cond("intimacy_tolerance", "high"),
+      cond("confirmation_need", "low"),
+      cond("boundary", "high"),
+    ],
+    text: "你能接受它的靠近，也能接受它的沉默。你不急于确认什么，也不急于离开。你在这九十秒里，展现出了一种难得的平和。你允许关系存在，但不依赖关系定义自己。",
+  },
+  {
+    id: 19,
+    name: "温柔尝试",
+    conditions: [
+      cond("approach_tendency", "mid"),
+      cond("confirmation_need", "mid"),
+      cond("repair_tendency", "high"),
+    ],
+    text: "你没有特别急切，也没有特别疏远。你只是温柔地尝试着靠近，偶尔退开，但始终没有真正离开。这九十秒里，你留下了一个轻柔的痕迹。",
+  },
+  {
+    id: 20,
+    name: "受挫退缩",
+    conditions: [
+      cond("rejection_sensitivity", "high"),
+      cond("repair_tendency", "low"),
+      cond("approach_tendency", "low"),
+    ],
+    text: "当它第一次退开时，你就感受到了某种拒绝。你没有继续尝试，而是选择了退到更远的地方。你保护了自己，但也错过了后面可能发生的故事。",
+  },
+];
+
+// ---- 动作/行为显示名 ----
+export const ACTION_LABELS: Record<ActionType, string> = {
+  approach: "接近",
+  retreat: "回避",
+  pause: "等待",
+  reach: "接触",
+  glide: "经过",
+  leave: "离开",
+};
+
+export const BEHAVIOR_LABELS: Record<EntityBehavior, string> = {
+  retreat: "逃开",
+  dodge: "躲避",
+  approach: "靠近",
+  ignore: "无视",
+  hesitate: "迟疑",
+};
+
+export const PHASE_LABELS: Record<Phase, string> = {
+  exploration: "探索期",
+  repetition: "重复期",
+  deepening: "深化期",
+  closure: "收束期",
+};
+
+export const SEVEN_DIM_LABELS: Record<SevenDimKey, string> = {
+  approach_tendency: "靠近倾向",
+  confirmation_need: "确认需求",
+  rejection_sensitivity: "拒绝敏感",
+  intimacy_tolerance: "亲密耐受",
+  uncertainty_tolerance: "不确定耐受",
+  boundary: "边界",
+  repair_tendency: "修复倾向",
+};
+
+// ---- 问卷题目（文档 §4.3） ----
+export const QUESTIONNAIRE_ITEMS = [
+  { key: "q1", text: "我觉得它记得我之前做过什么。" },
+  { key: "q2", text: "我觉得它的反应是有原因的，不是随机的。" },
+  { key: "q3", text: "我觉得它有自己的情绪或意愿。" },
+  { key: "q4", text: "当它不回应我时，我会感到不安，想再做点什么。" },
+  { key: "q5", text: "我需要它明确回应我，才能安心。" },
+  { key: "q6", text: "当它靠近我时，我会想后退或保持距离。" },
+  { key: "q7", text: "我不太愿意主动伸手，怕被它拒绝或躲开。" },
+] as const;
+
+export const ETHICS_NOTE =
+  "本结果仅反映本次交互中的行为倾向，不构成心理诊断。";
