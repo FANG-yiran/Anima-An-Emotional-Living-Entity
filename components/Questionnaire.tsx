@@ -23,9 +23,6 @@ export default function Questionnaire({ onSubmit }: Props) {
     <div className="modal-backdrop">
       <div className="modal panel questionnaire">
         <h2 className="modal-title">交互结束 · 几个关于感受的问题</h2>
-        <p className="modal-sub">
-          这些自述只用于微调你的行为画像（权重 0.3），不会生成任何依恋标签。
-        </p>
 
         <div className="q-list">
           {QUESTIONNAIRE_ITEMS.map((item, idx) => (

@@ -270,25 +270,24 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-/* ============ 匿名动态信号 ============ */
+/* ============ 匿名动态信号（左下、弱化） ============ */
 .signal-field {
   position: absolute;
-  top: 50%;
-  right: 34px;
-  width: clamp(112px, 13vw, 196px);
+  bottom: 28px;
+  left: 28px;
+  width: clamp(96px, 10vw, 140px);
   display: flex;
   flex-direction: column;
-  gap: 13px;
-  padding: 18px 16px;
-  transform: translateY(-50%);
+  gap: 10px;
+  padding: 14px 12px;
   z-index: 20;
   pointer-events: none;
-  opacity: 0.74;
-  background: linear-gradient(135deg, rgba(12, 18, 36, 0.3), rgba(12, 18, 36, 0.08));
-  border: 1px solid rgba(160, 184, 235, 0.07);
-  border-radius: 18px;
-  box-shadow: inset 0 0 30px rgba(110, 231, 255, 0.025), 0 16px 60px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(7px);
+  opacity: 0.38;
+  background: linear-gradient(135deg, rgba(12, 18, 36, 0.22), rgba(12, 18, 36, 0.04));
+  border: 1px solid rgba(160, 184, 235, 0.05);
+  border-radius: 14px;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
 }
 
 .signal-track {
@@ -304,8 +303,8 @@ button {
   min-width: 8%;
   border-radius: inherit;
   transition: width 0.48s cubic-bezier(0.22, 0.61, 0.36, 1);
-  background: linear-gradient(90deg, rgba(110, 231, 255, 0.16), rgba(157, 203, 255, 0.82));
-  box-shadow: 0 0 10px rgba(110, 231, 255, 0.32);
+  background: linear-gradient(90deg, rgba(110, 231, 255, 0.12), rgba(157, 203, 255, 0.55));
+  box-shadow: none;
 }
 
 .signal-fill::after {
@@ -313,12 +312,12 @@ button {
   position: absolute;
   top: 50%;
   right: -2px;
-  width: 4px;
-  height: 4px;
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
   transform: translateY(-50%);
-  background: rgba(232, 244, 255, 0.92);
-  box-shadow: 0 0 8px rgba(110, 231, 255, 0.86);
+  background: rgba(232, 244, 255, 0.7);
+  box-shadow: 0 0 6px rgba(110, 231, 255, 0.45);
 }
 
 .signal-fill--2,
@@ -338,10 +337,12 @@ button {
   }
 
   .signal-field {
-    right: 20px;
-    width: 108px;
-    gap: 11px;
-    padding: 15px 13px;
+    bottom: 16px;
+    left: 16px;
+    width: 88px;
+    gap: 8px;
+    padding: 10px 10px;
+    opacity: 0.32;
   }
 }
 
@@ -619,7 +620,8 @@ button {
   font-family: var(--font-kai);
   font-size: 12px;
   letter-spacing: 5px;
-  color: var(--text-2);
+  color: var(--text-1);
+  opacity: 0.92;
   margin-bottom: 18px;
   text-align: center;
 }
@@ -637,7 +639,8 @@ button {
   font-family: var(--font-sans);
   font-size: 13px;
   letter-spacing: 0.08em;
-  color: var(--text-1);
+  color: var(--text-0);
+  opacity: 0.92;
   font-variant-numeric: tabular-nums;
   text-align: center;
   line-height: 1.75;
@@ -651,21 +654,108 @@ button {
   width: 100%;
 }
 
-.poem-ethics {
-  margin: 0;
+.poem-link {
+  background: none;
+  border: none;
+  font-family: var(--font-kai);
+  font-size: 13px;
+  letter-spacing: 5px;
+  color: var(--text-1);
+  cursor: pointer;
+  padding: 8px 12px;
+  opacity: 0.92;
+  transition:
+    color 0.25s ease,
+    opacity 0.25s ease,
+    transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1),
+    text-shadow 0.3s ease;
+}
+.poem-link:hover {
+  color: var(--text-0);
+  opacity: 1;
+  transform: translateY(-3px);
+  text-shadow: 0 2px 16px rgba(127, 212, 255, 0.4);
+}
+.poem-link:active {
+  transform: translateY(-1px);
+}
+
+.poem-back {
+  background: none;
+  border: none;
+  font-family: var(--font-kai);
   font-size: 12px;
-  color: var(--text-2);
-  letter-spacing: 0.5px;
+  letter-spacing: 3px;
+  color: var(--text-1);
+  opacity: 0.88;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.2s ease, opacity 0.2s ease, transform 0.3s ease;
+}
+.poem-back:hover {
+  color: var(--text-0);
+  opacity: 1;
+  transform: translateX(-3px);
+}
+
+.analysis-card {
+  max-width: 480px;
+  gap: 36px;
+  animation: poem-in 0.8s ease both;
+}
+
+.analysis-block {
+  width: 100%;
   text-align: center;
-  line-height: 1.7;
+}
+
+.analysis-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.analysis-chip {
+  font-family: var(--font-kai);
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--text-0);
+  padding: 4px 12px;
+  border: 1px solid rgba(170, 195, 230, 0.32);
+  border-radius: 999px;
+  opacity: 0.95;
+}
+
+.analysis-desc {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 2;
+  letter-spacing: 0.06em;
+  color: var(--text-0);
+  opacity: 0.94;
+  text-align: left;
+}
+
+.analysis-conflict {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-1);
+  opacity: 0.92;
+  text-align: left;
 }
 
 .poem-restart {
   font-size: 13px;
   letter-spacing: 2px;
   padding: 10px 28px;
-  color: var(--text-1);
+  color: var(--text-0);
+  opacity: 0.9;
+  transition: opacity 0.2s ease, transform 0.3s ease;
 }
 .poem-restart:hover {
-  color: var(--text-0);
+  opacity: 1;
+  transform: translateY(-2px);
 }

@@ -22,7 +22,7 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
 
   useEffect(() => {
     const wrap = wrapRef.current!;
-    const lifeform = new WebGLLifeform(wrap, { particleCount: 160_000, resolution: 0.22 });
+    const lifeform = new WebGLLifeform(wrap, { particleCount: 68_000, resolution: 0.22 });
     lifeformRef.current = lifeform;
 
     // 调试钩子：浏览器 console 强制切换六态（验证截图用）
@@ -86,6 +86,8 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
       lastFrameRef.current = now;
 
       const snap = engine.getSnapshot(now);
+      // 光流形态同步给引擎：接近/触碰相对形态体表面
+      engine.setVisualState(lifeform.visualState);
       lifeform.tick(snap, now, dt);
       lifeform.render(now);
 
