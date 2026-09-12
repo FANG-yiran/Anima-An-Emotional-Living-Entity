@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AnimaEngine } from "@/lib/engine";
 import type { EngineSnapshot } from "@/lib/types";
 import { WebGLLifeform } from "@/lib/webglLifeform";
+import AmbientInterlude from "./AmbientInterlude";
 
 interface Props {
   engine: AnimaEngine;
@@ -19,6 +20,7 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
   const lastFrameRef = useRef(0);
   const lastEventCountRef = useRef(0);
   const lifeformRef = useRef<WebGLLifeform | null>(null);
+  const [veilHost, setVeilHost] = useState<WebGLLifeform | null>(null);
 
   useEffect(() => {
     const wrap = wrapRef.current!;
@@ -31,8 +33,11 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
         lifeform,
         setState: (s: string) => lifeform.debugSetState(s as never),
         release: () => lifeform.debugRelease(),
+        triggerVeil: () => lifeform.debugTriggerVeil(),
       };
     }
+
+    setVeilHost(lifeform);
 
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
@@ -104,6 +109,7 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
       ro.disconnect();
       lifeform.dispose();
       lifeformRef.current = null;
+      setVeilHost(null);
       if (typeof window !== "undefined") {
         delete (window as unknown as Record<string, unknown>).__animaDebug;
       }
@@ -119,6 +125,7 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
   const ss = Math.floor(remaining % 60);
   return (
     <div className="stage-wrap" ref={wrapRef}>
+      {veilHost && <AmbientInterlude lifeform={veilHost} />}
       <div className="stage-hud" aria-label="剩余时间">
         <span className="hud-time">
           {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}

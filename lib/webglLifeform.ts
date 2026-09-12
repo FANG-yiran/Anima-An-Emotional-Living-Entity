@@ -19,6 +19,15 @@ export const STATE_ORDER: AttachmentState[] = [
   "dormant", "secure", "anxious", "avoidant", "fearful", "fusion",
 ];
 
+/** 间奏异象：涟漪水面（同一状态驻留过久时浮现） */
+export type InterludeType = "ripple" | null;
+
+/** 同一状态驻留满 15s 触发间奏；间奏持续 4s，结束后随机切换到另一状态 */
+const INTERLUDE_TRIGGER_MS = 15000;
+const INTERLUDE_DURATION_MS = 4000;
+const INTERLUDE_FADE_IN_MS = 700;
+const INTERLUDE_FADE_OUT_MS = 800;
+
 export interface StateParams {
   cohesion: number; // 凝聚力
   cursorForce: number; // 光标力
@@ -69,7 +78,7 @@ export function detectAttachmentState(
     axis_arousal: number;
     axis_manifest: number;
   },
-  history: { approachCount: number; totalEvents: number },
+  history: { approachCount: number; totalEvents: number; anxiousSeen?: boolean },
   prev: AttachmentState
 ): AttachmentState {
   const ap = s.axis_approach;
@@ -92,10 +101,13 @@ export function detectAttachmentState(
 
   // 候选态：边界清晰，但 avoidant 略放宽以便「退开/疏离」能进入螺旋
   let candidate: AttachmentState | null = null;
-  if (sa < 0.42 && ar > 0.58) candidate = "fearful";
+  if (sa < 0.44 && ar > 0.55) candidate = "fearful";
   else if (ap > 0.58 && sa < 0.46 && ar > 0.52) candidate = "anxious";
   else if (ap < 0.50 && ar < 0.62 && sa < 0.58) candidate = "avoidant";
   else if (sa > 0.62 && ap >= 0.42) candidate = "secure";
+
+  // 焦虑型已出现过一次后，其再次触发改判为恐惧型
+  if (candidate === "anxious" && history.anxiousSeen) candidate = "fearful";
 
   if (!candidate) return prev;
   if (candidate === prev) return prev;
@@ -104,7 +116,7 @@ export function detectAttachmentState(
   const margin = 0.05;
   const holds = (st: AttachmentState): boolean => {
     switch (st) {
-      case "fearful": return sa < 0.42 + margin && ar > 0.58 - margin;
+      case "fearful": return sa < 0.44 + margin && ar > 0.55 - margin;
       case "anxious": return ap > 0.58 - margin && sa < 0.46 + margin && ar > 0.52 - margin;
       case "avoidant": return ap < 0.50 + margin && ar < 0.62 + margin && sa < 0.58 + margin;
       case "secure": return sa > 0.62 - margin && ap >= 0.42 - margin;
@@ -482,6 +494,36 @@ float shWidth(float lid){ return lid < 0.5 ? 4.0 : 2.4; }
 float shBaseA(float lid){ return lid < 0.5 ? 0.35 : 0.22; }
 `;
 
+// ---- 恐惧态：元球（metaball）几何（更新 pass 共享） ----
+// 参考 cos-design metaballPool：若干圆球中心受光标排斥、彼此软互斥，
+// 粒子填充球体体积，片元着色器（全屏四边形）逐像素求 Σ r²/d² 阈值场 → 浅蓝柔边球。
+const FEARFUL_BLOB_GEOM_GLSL = `
+uniform float uBlobMode; // 恐惧态元球形态权重（0..1 平滑）
+#define BLB_COUNT 6.0
+uniform vec2 uBlob[6];
+uniform vec2 uBlobV[6];
+uniform float uBlobR[6];
+
+// 粒子 → 所属元球内部填充锚点（随球心整体移动；球心运动由 CPU 模拟）
+void blobInfo(float i, float t, vec2 cursor, float hasCursor,
+              out vec2 lp, out float depth, out float sel, out float up, out vec2 lvel){
+  float bid = floor(hash(i + 17.0) * BLB_COUNT);
+  int b = int(bid);
+  float r = uBlobR[b];
+  // 球内均匀填充（sqrt 保证面密度均匀）；半径放 1.22 倍给边缘辉光留覆盖
+  float ang = hash(i + 23.0) * 6.2831853;
+  float rr = sqrt(hash(i + 29.0)) * r * 1.22;
+  // 每球轻微椭圆变形 + 每粒子小抖动 → 有机而非正圆
+  float squash = 0.82 + 0.36 * hash(i + 31.0);
+  vec2 off = vec2(cos(ang), sin(ang) * squash) * rr;
+  lp = uBlob[b] + off;
+  depth = clamp(rr / (r * 1.22), 0.0, 1.0);
+  sel = 1.0;
+  up = 0.5;
+  lvel = uBlobV[b];
+}
+`;
+
 // ---- 粒子更新（GPGPU：位置+速度 FBO 乒乓） ----
 const particle_update_frag = `
 precision highp float;
@@ -518,6 +560,7 @@ out vec4 fragColor;
 
 ${HASH_FUNC}
 ${LINE_GEOM_GLSL}
+${FEARFUL_BLOB_GEOM_GLSL}
 
 vec2 uvFromIndex(float i){
   return (vec2(mod(i, uGridW), floor(i / uGridW)) + 0.5) / uGridSize;
@@ -555,16 +598,10 @@ vec2 homePos(float i, float stateId){
     vec2 lp2; float ld2; float ls2; float lu2; vec2 lv2;
     lineInfo(i, uTime, uCursor, uHasCursor, lp2, ld2, ls2, lu2, lv2);
     return lp2;
-  } else if (stateId < 4.5) { // fearful：多涡旋核 + 撕裂散布
-    float cell = floor(r3 * 5.0);
-    vec2 k = hash2(cell * 13.0 + 1.0);
-    vec2 axis = vec2(k.x, k.y) * vec2(uResW, uResH) * 0.7 + uCore * 0.3;
-    float ang = r1 * 6.28318;
-    float rad = 40.0 + r2 * min(uResW, uResH) * 0.28;
-    vec2 p = axis + vec2(cos(ang), sin(ang)) * rad;
-    // 撕裂带：沿主轴拉长
-    p.x += (r4 - 0.5) * min(uResW, uResH) * 0.25;
-    return p;
+  } else if (stateId < 4.5) { // fearful：元球软球（粒子填充，片元渲球）
+    vec2 lp2; float ld2; float ls2; float lu2; vec2 lv2;
+    blobInfo(i, uTime, uCursor, uHasCursor, lp2, ld2, ls2, lu2, lv2);
+    return lp2;
   } else { // fusion：紧密包裹核心 + 外围缠绕丝带（连接/共生）
     float ang = r1 * 6.28318;
     float inner = step(r4, 0.55);
@@ -650,6 +687,16 @@ void main(){
     lineVel = lv;
   }
 
+  // 恐惧态：元球填充点软捕获（球心随光标回避而移动）
+  vec2 blobAnchor = pos;
+  vec2 blobVel = vel;
+  if (uBlobMode > 0.01) {
+    vec2 bp; float bd; float bs; float bu; vec2 bv;
+    blobInfo(i, uTime, uCursor, uHasCursor, bp, bd, bs, bu, bv);
+    blobAnchor = bp;
+    blobVel = bv;
+  }
+
   // 人形吸引（sand people：安全态凝聚力适中 + 低湍流时）
   if (uSandPull > 0.01) {
     vec2 sil = texture(uSilhouette, vec2(r2, 0.5)).xy; // 0..1
@@ -693,6 +740,14 @@ void main(){
     // 极轻的切向漂移，让簇体有「上升呼吸」而非静态描线
     vel += normalize(lineVel + vec2(1e-3)) * uMigration * 18.0 * uDt
          * sin(uTime * 1.4 + r1 * 6.28318);
+  }
+
+  // 恐惧态：软弹簧靠向元球填充点 + 恐惧颤抖（球内粒子轻微抖动，不锁死）
+  if (uBlobMode > 0.01) {
+    float kb = clamp(uBlobMode * 0.06, 0.0, 0.8);
+    pos = mix(pos, blobAnchor, kb);
+    vel = mix(vel, blobVel, clamp(kb * 0.5, 0.0, 0.5));
+    vel += (vec2(hash(i + 51.0), hash(i + 53.0)) - 0.5) * uBlobMode * 26.0 * uDt;
   }
 
   // 边界软约束
@@ -755,6 +810,8 @@ uniform float uResW;
 uniform float uResH;
 uniform float uLineMode;
 uniform float uCurveFade; // 回避态稳态：平滑壳线出现后粒子点隐去
+uniform float uBlobMode; // 恐惧态：元球接管后粒子点隐去
+uniform float uVeil; // 间奏异象：粒子整体渐隐（0..1）
 in float vTwinkle;
 in float vSeed;
 in float vDepth;
@@ -770,6 +827,8 @@ void main(){
   float a = soft * mix(0.2 + 0.8 * vTwinkle, 0.22 + 0.55 * vTwinkle, uLineMode) * 0.42;
   a *= vLineA * mix(1.0, 0.55 + 0.45 * vDepth, uLineMode);
   a *= mix(1.0, 0.0, uLineMode * uCurveFade);
+  a *= 1.0 - uBlobMode;
+  a *= 1.0 - uVeil * 0.92; // 间奏异象浮现时粒子渐隐，留 8% 残影
   col *= mix(1.0 + 0.25 * (1.0 - vTwinkle), 0.75 + 0.35 * vDepth, uLineMode) * 0.92;
   fragColor = vec4(col, a);
 }
@@ -809,6 +868,7 @@ const shell_curve_frag = `
 precision highp float;
 uniform float uOpacity;
 uniform float uTime;
+uniform float uVeil;
 in float vSide;
 in float vLine;
 in float vT;
@@ -829,9 +889,54 @@ void main(){
   float a = (body * 0.38 + core * 0.8) * shBaseA(vLine)
           * zfade * tip * (1.0 + 0.8 * vRep);
   a *= uOpacity;
+  a *= 1.0 - uVeil * 0.92;
   vec3 col = mix(vec3(0.45, 0.54, 0.88), vec3(0.98, 0.97, 1.0), core);
   col *= 0.8 + 0.4 * vDepth;
   col *= 0.85 + 0.35 * vRep;
+  fragColor = vec4(col, a);
+}
+`;
+
+// ---- 渲染：恐惧态元球场（全屏四边形，逐像素 Σ r²/d² → 浅蓝柔边球） ----
+const blob_quad_vert = `
+in vec3 position;
+void main(){
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`;
+const blob_quad_frag = `
+precision highp float;
+uniform float uTime;
+uniform float uBlobMode;
+uniform float uVeil;
+uniform vec2 uBlob[6];
+uniform float uBlobR[6];
+out vec4 fragColor;
+void main(){
+  // gl_FragCoord 以画布像素为单位（绘制缓冲 = CSS 尺寸，无 dpr 缩放）
+  vec2 p = gl_FragCoord.xy;
+  float sum = 0.0;
+  float hi = 0.0;
+  for (int i = 0; i < 6; i++) {
+    vec2 d = p - uBlob[i];
+    float r = uBlobR[i];
+    float m = (r * r) / (dot(d, d) + 1.0);
+    sum += m;
+    // 高光：球心左上偏移亮斑
+    vec2 hd = p - (uBlob[i] - vec2(r * 0.30, r * 0.32));
+    hi += (r * 0.55) / (dot(hd, hd) + 1.0);
+  }
+  sum *= 1.0 + 0.05 * sin(uTime * 0.9); // 呼吸
+  // 阈值场：core 决定球体主体，glow 负责外缘柔边（模拟 blur(8px)）
+  // 阈值基本保持原标定：球半径缩小时等值面（视觉半径）才会真正变小
+  float core = smoothstep(0.95, 1.8, sum);
+  float glow = smoothstep(0.38, 1.3, sum);
+  float a = (core * 0.95 + glow * 0.30) * uBlobMode;
+  a *= 1.0 - uVeil * 0.92;
+  if (a < 0.004) discard;
+  // 浅蓝 #38bdf8（参考 metaballPool），按强度加红增暖；叠加白色高光
+  vec3 col = vec3(0.22 + 0.18 * glow, 0.74 + 0.06 * glow, 0.973);
+  col += vec3(clamp(hi * 0.16, 0.0, 0.55));
   fragColor = vec4(col, a);
 }
 `;
@@ -870,11 +975,13 @@ precision highp float;
 uniform sampler2D uPalette;
 uniform float uColorTemp;
 uniform float uConnect;
+uniform float uVeil;
 in float vSeed;
 out vec4 fragColor;
 void main(){
   float alpha = clamp((uConnect - 0.3) * 0.85, 0.0, 0.38);
   alpha *= 0.45 + 0.35 * vSeed;
+  alpha *= 1.0 - uVeil * 0.92;
   if (alpha < 0.004) discard;
   vec3 col = texture(uPalette, vec2(uColorTemp, 0.5)).rgb;
   fragColor = vec4(col, alpha);
@@ -901,6 +1008,7 @@ precision highp float;
 uniform sampler2D uPalette;
 uniform float uColorTemp;
 uniform float uManifest;
+uniform float uVeil;
 in float vKind;
 out vec4 fragColor;
 void main(){
@@ -908,13 +1016,14 @@ void main(){
   float d = length(pc) * 2.0;
   if (d > 1.0) discard;
   float soft = smoothstep(1.0, 0.0, d);
+  float veil = 1.0 - uVeil * 0.92;
   if (vKind < 0.5) {
     // 核心只作极淡环境光，不再呈现为独立「光球」——交互对象是粒子形态本身
     vec3 col = texture(uPalette, vec2(uColorTemp, 0.5)).rgb;
-    float a = soft * (0.03 + 0.05 * uManifest);
+    float a = soft * (0.03 + 0.05 * uManifest) * veil;
     fragColor = vec4(col * (0.7 + uManifest * 0.4), a);
   } else {
-    float a = soft * 0.28;
+    float a = soft * 0.28 * veil;
     fragColor = vec4(vec3(0.93, 0.96, 1.0), a);
   }
 }
@@ -1405,6 +1514,8 @@ export class WebGLLifeform {
   private glowMat: THREE.RawShaderMaterial;
   private curveMesh: THREE.Mesh;
   private curveMat: THREE.RawShaderMaterial;
+  private blobMesh: THREE.Mesh;
+  private blobMat: THREE.RawShaderMaterial;
   private paletteTex: THREE.DataTexture;
   private silhouetteTex: THREE.DataTexture;
 
@@ -1422,10 +1533,25 @@ export class WebGLLifeform {
   private currentParams: StateParams = { ...STATE_PARAMS.dormant };
   private burstUntil = 0;
   private debugOverride: AttachmentState | null = null;
+  // 焦虑型是否已出现过：出现一次后，其再次触发改判为恐惧型
+  private anxiousSeen = false;
+
+  // ---- 间奏异象：同一状态驻留 15s 后浮现 4s 涟漪水面（public 供 overlay 轮询） ----
+  interludeType: InterludeType = null;
+  interludeAlpha = 0;
+  private interludeStart = 0;
+  private stateSince = 0;
+  // 间奏结束后的随机新态锁定：让新形态完整呈现，不被实时检测立刻拉回
+  private pinnedState: AttachmentState | null = null;
+  private pinnedUntil = 0;
 
   // 回避态壳线：曲线显隐与粒子交接（0..1 平滑）
   private shellAlpha = 0;
   private particleFade = 0;
+
+  // 恐惧态元球（metaballPool 参考）：6 个球心 CPU 模拟，光标排斥 + 软互斥
+  private blobs: { x: number; y: number; vx: number; vy: number; r: number }[] = [];
+  private blobMode = 0; // 元球形态权重（平滑过渡）
 
   /** 引擎表面距离判定用：当前目标形态 */
   get visualState(): AttachmentState {
@@ -1468,6 +1594,9 @@ export class WebGLLifeform {
     this.width = Math.max(1, Math.floor(rect.width));
     this.height = Math.max(1, Math.floor(rect.height));
     this.renderer.setSize(this.width, this.height, false);
+
+    // 恐惧态元球：初始集群（进入恐惧态时再重播种）
+    this.seedBlobs();
 
     // 纹理
     this.paletteTex = makePaletteTexture([
@@ -1542,6 +1671,10 @@ export class WebGLLifeform {
         uHomeCur: { value: 0 },
         uBurst: { value: 0 },
         uBreath: { value: 0 },
+        uBlobMode: { value: 0 },
+        uBlob: { value: Array.from({ length: 6 }, () => new THREE.Vector2(0, 0)) },
+        uBlobV: { value: Array.from({ length: 6 }, () => new THREE.Vector2(0, 0)) },
+        uBlobR: { value: [0, 0, 0, 0, 0, 0] },
       },
     });
     const updatePlane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.updateMaterial);
@@ -1573,6 +1706,8 @@ export class WebGLLifeform {
         uResH: { value: this.height },
         uLineMode: { value: 0 },
         uCurveFade: { value: 0 },
+        uBlobMode: { value: 0 },
+        uVeil: { value: 0 },
         uCursor: { value: new THREE.Vector2(0, 0) },
         uHasCursor: { value: 0 },
         uCore: { value: new THREE.Vector2(this.width / 2, this.height / 2) },
@@ -1620,6 +1755,7 @@ export class WebGLLifeform {
         uPalette: { value: this.paletteTex },
         uColorTemp: { value: 0.5 },
         uConnect: { value: 0 },
+        uVeil: { value: 0 },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -1645,6 +1781,7 @@ export class WebGLLifeform {
         uPalette: { value: this.paletteTex },
         uColorTemp: { value: 0.2 },
         uManifest: { value: 0 },
+        uVeil: { value: 0 },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -1693,6 +1830,7 @@ export class WebGLLifeform {
         uCursor: { value: new THREE.Vector2(0, 0) },
         uHasCursor: { value: 0 },
         uOpacity: { value: 0 },
+        uVeil: { value: 0 },
         uCore: { value: new THREE.Vector2(this.width / 2, this.height / 2) },
       },
       transparent: true,
@@ -1703,6 +1841,26 @@ export class WebGLLifeform {
     this.curveMesh = new THREE.Mesh(cGeo, this.curveMat);
     this.curveMesh.frustumCulled = false;
 
+    // 恐惧态元球：全屏四边形渲元球场（形状由 uBlob/uBlobR 逐像素计算）
+    this.blobMat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: blob_quad_vert,
+      fragmentShader: blob_quad_frag,
+      uniforms: {
+        uTime: { value: 0 },
+        uBlobMode: { value: 0 },
+        uVeil: { value: 0 },
+        uBlob: { value: Array.from({ length: 6 }, () => new THREE.Vector2(0, 0)) },
+        uBlobR: { value: [0, 0, 0, 0, 0, 0] },
+      },
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    });
+    this.blobMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blobMat);
+    this.blobMesh.frustumCulled = false;
+
     // 流体
     Common.init(this.renderer, this.width, this.height);
     this.fluidSim = new FluidSim(this.renderer, this.width, this.height, {});
@@ -1712,6 +1870,7 @@ export class WebGLLifeform {
     // 初始状态时间
     this.transitionStart = performance.now();
     this.morphStart = performance.now();
+    this.stateSince = performance.now();
   }
 
   private particleCount = 0;
@@ -1724,11 +1883,16 @@ export class WebGLLifeform {
     if (this.debugOverride) {
       // 调试模式：跳过自动检测，强制切换到指定状态
       this.setTarget(this.debugOverride);
+    } else if (this.pinnedState && now < this.pinnedUntil) {
+      // 间奏结束后的随机新态：锁定 6s，让贝塞尔形态过渡（1.5-3s）完整呈现
+      this.setTarget(this.pinnedState);
     } else {
+      if (this.pinnedState) this.pinnedState = null;
       const counts = snap.actionCounts;
       const history = {
         approachCount: counts.approach,
         totalEvents: counts.approach + counts.retreat + counts.pause + counts.reach + counts.glide + counts.leave + counts.dblclick + counts.hold + counts.drag + counts.still,
+        anxiousSeen: this.anxiousSeen,
       };
       const detected = detectAttachmentState(snap.state, history, this.targetState);
       if (detected === this.pendingState) {
@@ -1754,6 +1918,14 @@ export class WebGLLifeform {
       cur[k] = from[k] + (target[k] - from[k]) * tf;
     });
 
+    // ---- 恐惧态元球：推进模拟 + 平滑形态权重 ----
+    this.stepBlobs(snap, Math.min(dtSec, 0.05));
+    const blobTarget = this.targetState === "fearful" ? 1 : 0;
+    this.blobMode += (blobTarget - this.blobMode) * Math.min(1, dtSec * 3.5);
+
+    // ---- 间奏异象：同态驻留 7s 随机浮现 3s，粒子随之渐隐再归位 ----
+    this.updateInterlude(now);
+
     // ---- 更新 uniform ----
     const U = this.updateMaterial.uniforms;
     U.uTime.value = snap.elapsed;
@@ -1767,6 +1939,8 @@ export class WebGLLifeform {
     } else {
       U.uHasCursor.value = 0;
     }
+    U.uBlobMode.value = this.blobMode;
+    this.writeBlobUniforms(U);
     U.uCohesion.value = cur.cohesion;
     U.uCursorForce.value = cur.cursorForce;
     U.uVortex.value = cur.vortex;
@@ -1790,6 +1964,8 @@ export class WebGLLifeform {
     PM.uSize.value = 1.55 * cur.size * Math.max(0.55, Math.min(1.25, this.width / 1200));
     PM.uColorTemp.value = cur.colorTemp;
     PM.uLineMode.value = cur.migration;
+    PM.uBlobMode.value = this.blobMode;
+    PM.uVeil.value = this.interludeAlpha;
     PM.uCore.value.set(snap.entityPos.x, snap.entityPos.y);
     if (snap.cursorPos) {
       PM.uCursor.value.set(snap.cursorPos.x, snap.cursorPos.y);
@@ -1816,6 +1992,7 @@ export class WebGLLifeform {
     CM.uResW.value = this.width;
     CM.uResH.value = this.height;
     CM.uOpacity.value = this.shellAlpha;
+    CM.uVeil.value = this.interludeAlpha;
     CM.uCore.value.set(snap.entityPos.x, snap.entityPos.y);
     if (snap.cursorPos) {
       CM.uCursor.value.set(snap.cursorPos.x, snap.cursorPos.y);
@@ -1824,15 +2001,24 @@ export class WebGLLifeform {
       CM.uHasCursor.value = 0;
     }
 
+    // 恐惧态元球：全屏场 uniform
+    const BM = this.blobMat.uniforms;
+    BM.uTime.value = snap.elapsed;
+    BM.uBlobMode.value = this.blobMode;
+    BM.uVeil.value = this.interludeAlpha;
+    this.writeBlobUniforms(BM);
+
     const TM = this.threadsMat.uniforms;
     TM.uCore.value.set(snap.entityPos.x, snap.entityPos.y);
     if (snap.cursorPos) TM.uCursor.value.set(snap.cursorPos.x, snap.cursorPos.y);
     TM.uConnect.value = cur.connect;
     TM.uColorTemp.value = cur.colorTemp;
+    TM.uVeil.value = this.interludeAlpha;
 
     const GM = this.glowMat.uniforms;
     GM.uColorTemp.value = cur.colorTemp;
     GM.uManifest.value = snap.manifestProgress;
+    GM.uVeil.value = this.interludeAlpha;
     const gAttr = this.glow.geometry.attributes;
     const gp = gAttr.position.array as Float32Array;
     gp[0] = snap.entityPos.x;
@@ -1886,11 +2072,74 @@ export class WebGLLifeform {
     if (this.shellAlpha > 0.003) {
       r.render(this.curveMesh, this.updateCamera);
     }
+    // 恐惧态元球：全屏场（加性叠加在粒子之上，形成柔边浅蓝球）
+    if (this.blobMode > 0.01) {
+      r.render(this.blobMesh, this.updateCamera);
+    }
     r.render(this.glow, this.updateCamera);
   }
 
   setBurstUntil(t: number) {
     this.burstUntil = t;
+  }
+
+  /**
+   * 间奏异象调度：
+   * - 非间奏期：同一非休眠状态驻留满 15s → 浮现涟漪水面，持续 4s
+   * - 淡入 0.7s / 持续 / 淡出 0.8s，interludeAlpha 同步驱动粒子渐隐与水面淡入
+   * - 播完后粒子归位，并随机切换到另一个依恋状态
+   */
+  private updateInterlude(now: number) {
+    if (this.interludeType) {
+      const p = (now - this.interludeStart) / INTERLUDE_DURATION_MS;
+      if (p >= 1) {
+        this.interludeType = null;
+        this.interludeAlpha = 0;
+        this.switchToRandomOtherState();
+        return;
+      }
+      const fadeIn = INTERLUDE_FADE_IN_MS / INTERLUDE_DURATION_MS;
+      const fadeOutStart = 1 - INTERLUDE_FADE_OUT_MS / INTERLUDE_DURATION_MS;
+      if (p < fadeIn) {
+        this.interludeAlpha = smooth01(p / fadeIn);
+      } else if (p > fadeOutStart) {
+        this.interludeAlpha = smooth01((1 - p) / (1 - fadeOutStart));
+      } else {
+        this.interludeAlpha = 1;
+      }
+      return;
+    }
+
+    this.interludeAlpha = 0;
+    if (
+      this.targetState !== "dormant" &&
+      now - this.stateSince >= INTERLUDE_TRIGGER_MS
+    ) {
+      this.interludeType = "ripple";
+      this.interludeStart = now;
+    }
+  }
+
+  /** 间奏结束：随机切换到与当前不同的另一个依恋状态（fusion 需历史解锁，不参与） */
+  private switchToRandomOtherState() {
+    const all: AttachmentState[] = ["secure", "anxious", "avoidant", "fearful"];
+    const pool = all
+      // 焦虑型已出现过一次后不再直接呈现（改由恐惧型承接）
+      .filter((s) => !(s === "anxious" && this.anxiousSeen))
+      .filter((s) => s !== this.targetState);
+    const next = pool[Math.floor(Math.random() * pool.length)];
+    if (next) {
+      this.setTarget(next);
+      // 锁定 6s：新态完整成形后再交还给实时检测
+      this.pinnedState = next;
+      this.pinnedUntil = performance.now() + 6000;
+    }
+  }
+
+  /** 调试：立即触发一次涟漪间奏（浏览器验证用） */
+  debugTriggerVeil() {
+    this.interludeType = "ripple";
+    this.interludeStart = performance.now();
   }
 
   /** 调试：强制目标状态并立即触发过渡（浏览器验证六态截图用） */
@@ -1904,11 +2153,106 @@ export class WebGLLifeform {
     this.debugOverride = null;
   }
 
+  /** 播种恐惧态元球：6 球心聚成单团软球（有机而非正圆） */
+  private seedBlobs() {
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const m = Math.min(this.width, this.height);
+    const n = 6;
+    this.blobs = [];
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.7;
+      const spread = m * 0.075 + Math.random() * 16;
+      this.blobs.push({
+        x: cx + Math.cos(ang) * spread * 0.55,
+        y: cy + Math.sin(ang) * spread * 0.4,
+        vx: (Math.random() - 0.5) * 2,
+        vy: (Math.random() - 0.5) * 2,
+        r: m * (0.09 + Math.random() * 0.035),
+      });
+    }
+  }
+
+  /** 每帧推进元球：光标排斥 + 软互斥 + 回中 + 阻尼 + 边界反弹（复刻 metaballPool） */
+  private stepBlobs(snap: EngineSnapshot, dt: number) {
+    const cursor = snap.cursorPos;
+    const tScale = Math.min(2.5, Math.max(0.2, dt * 60)); // 归一化到 60fps
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    for (const b of this.blobs) {
+      // 光标排斥（近则推开，回避语义）
+      if (cursor) {
+        const dx = b.x - cursor.x;
+        const dy = b.y - cursor.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < 220) {
+          const force = (220 - dist) * 0.055;
+          b.vx += (dx / dist) * force;
+          b.vy += (dy / dist) * force;
+        }
+      }
+      // 弱回中：整体不漂出屏幕中央区
+      const hdx = cx - b.x;
+      const hdy = cy - b.y;
+      const hd = Math.hypot(hdx, hdy) || 1;
+      b.vx += (hdx / hd) * Math.min(36, hd * 0.02) * 0.5 * tScale;
+      b.vy += (hdy / hd) * Math.min(36, hd * 0.02) * 0.5 * tScale;
+      b.vx *= 0.985;
+      b.vy *= 0.985;
+      b.x += b.vx * tScale;
+      b.y += b.vy * tScale;
+      // 边界反弹
+      if (b.x - b.r < 0) { b.x = b.r; b.vx *= -0.8; }
+      else if (b.x + b.r > this.width) { b.x = this.width - b.r; b.vx *= -0.8; }
+      if (b.y - b.r < 0) { b.y = b.r; b.vy *= -0.8; }
+      else if (b.y + b.r > this.height) { b.y = this.height - b.r; b.vy *= -0.8; }
+    }
+    // 两两软互斥（参考 minDist = (r1+r2)*0.55）
+    for (let i = 0; i < this.blobs.length; i++) {
+      for (let j = i + 1; j < this.blobs.length; j++) {
+        const a = this.blobs[i];
+        const b = this.blobs[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 0.001;
+        const minDist = (a.r + b.r) * 0.55;
+        if (dist < minDist) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const overlap = minDist - dist;
+          a.x -= nx * overlap * 0.5;
+          a.y -= ny * overlap * 0.5;
+          b.x += nx * overlap * 0.5;
+          b.y += ny * overlap * 0.5;
+        }
+      }
+    }
+  }
+
+  /** 将 CPU 元球状态写入材质 uniform（更新 pass / 全屏场共用） */
+  private writeBlobUniforms(U: { [k: string]: { value: unknown } }) {
+    const pos = U.uBlob.value as THREE.Vector2[];
+    const rad = U.uBlobR.value as number[];
+    const vel = U.uBlobV ? (U.uBlobV.value as THREE.Vector2[]) : null;
+    for (let i = 0; i < this.blobs.length; i++) {
+      const b = this.blobs[i];
+      pos[i].set(b.x, b.y);
+      rad[i] = b.r;
+      if (vel) vel[i].set(b.vx, b.vy);
+    }
+  }
+
   private setTarget(s: AttachmentState) {
     if (s === this.targetState) return;
     this.morphFrom = { ...this.currentParams };
     this.prevState = this.targetState;
     this.targetState = s;
+    // 焦虑型一旦真正出现即被记录：之后再次触发将改判为恐惧型
+    if (s === "anxious") this.anxiousSeen = true;
+    // 状态切换：驻留计时重新开始（间奏期间的切换不影响当前间奏播完）
+    this.stateSince = performance.now();
+    // 进入恐惧态：重播元球，形成新的有机软球
+    if (s === "fearful") this.seedBlobs();
     this.transitionStart = performance.now();
     this.morphStart = performance.now();
     const sp = transitionSpeed(this.prevState, this.targetState);
@@ -1944,6 +2288,8 @@ export class WebGLLifeform {
       this.silhouetteTex.dispose();
       this.curveMesh.geometry.dispose();
       this.curveMat.dispose();
+      this.blobMesh.geometry.dispose();
+      this.blobMat.dispose();
     } catch {
       /* noop */
     }
