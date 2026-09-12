@@ -138,12 +138,11 @@ button {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
-.loading-text {
-  font-size: 28px;
-  letter-spacing: 4px;
-  font-weight: 600;
-  color: var(--accent);
-  animation: pulse-soft 1.4s ease-in-out infinite;
+/* ---- 粒子汇聚成字 ---- */
+.particle-text {
+  display: block;
+  width: min(92vw, 720px);
+  height: clamp(76px, 14vw, 118px);
 }
 
 /* ---- 生命体辉光 ---- */
@@ -451,6 +450,7 @@ button {
 
 /* ============ 生成中 ============ */
 .generating {
+  font-family: var(--font-poem); /* 生成页所有文字统一宋体 */
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -525,10 +525,10 @@ button {
 
 .generating-sub {
   color: var(--text-1);
-  font-size: 14px;
+  font-size: 16px;
   letter-spacing: 1px;
-  line-height: 1.8;
-  max-width: 420px;
+  line-height: 1.9;
+  max-width: 460px;
 }
 
 /* ============ 报告：一句诗 + 客观记录 ============ */

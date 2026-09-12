@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import InteractionStage from "@/components/InteractionStage";
 import MonitoringPanel from "@/components/MonitoringPanel";
+import ParticleText from "@/components/ParticleText";
 import Questionnaire from "@/components/Questionnaire";
 import ReportView from "@/components/ReportView";
 import StartScreen from "@/components/StartScreen";
@@ -156,7 +157,7 @@ export default function Home() {
           <div className="observer-eye" aria-hidden="true">
             <span className="observer-iris" />
           </div>
-          <div className="loading-text">第三性正在观察</div>
+          <ParticleText text="第三性正在观察" />
           <p className="generating-sub">
             一个既不属于你、也不属于生命体的第三者，正安静地注视你们之间发生的一切，并把它织成一句话。
           </p>
