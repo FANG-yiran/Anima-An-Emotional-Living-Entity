@@ -85,6 +85,8 @@ export function entityMovement(
   const dist = Math.hypot(dx, dy) || 1;
   const ux = dx / dist;
   const uy = dy / dist;
+  // 距离已远时收敛逃逸/闪避速度，避免整团光流被「甩飞」
+  const farScale = dist > 220 ? Math.max(0.25, 220 / dist) : 1;
 
   switch (behavior) {
     case "approach": {
@@ -92,11 +94,11 @@ export function entityMovement(
       return { vx: ux * speed, vy: uy * speed };
     }
     case "retreat": {
-      const speed = 95 + rand() * 45;
+      const speed = (95 + rand() * 45) * farScale;
       return { vx: -ux * speed, vy: -uy * speed };
     }
     case "dodge": {
-      const speed = 120 + rand() * 40;
+      const speed = (100 + rand() * 30) * farScale;
       return { vx: -uy * speed * (rand() < 0.5 ? 1 : -1), vy: ux * speed * (rand() < 0.5 ? 1 : -1) };
     }
     case "hesitate": {

@@ -13,7 +13,7 @@ export const ACTION = {
   APPROACH_DIST_DELTA: 30, // 距离缩小超过 30px 判定 approach
   RETREAT_DIST_DELTA: 30, // 距离增大超过 30px 判定 retreat
   PAUSE_DURATION: 500, // 光标停止 ≥ 0.5s → pause
-  REACH_RADIUS: 70, // 生命体附近点击半径 R
+  REACH_RADIUS: 110, // 生命体「形态体」附近点击半径（与光点簇体量对齐）
   GLIDE_SPEED: 420, // 快速经过速度阈值 V（px/s）
   GLIDE_MAX_DWELL: 200, // 停留 < 0.2s
   LEAVE_DURATION: 3000, // 停止操作 ≥ 3s → leave
@@ -45,7 +45,7 @@ export const AXIS_CONFIG: Record<
 };
 
 /** 高斯噪声 σ（文档 §2.2/§7.3） */
-export const NOISE_SIGMA = 0.02;
+export const NOISE_SIGMA = 0.012;
 
 /** 响应延迟范围（ms）（文档 §7.4） */
 export const LATENCY = { MIN: 100, MAX: 500 } as const;

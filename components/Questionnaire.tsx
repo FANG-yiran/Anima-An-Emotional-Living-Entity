@@ -238,8 +238,6 @@ export default function Questionnaire({ onSubmit }: Props) {
           <p className="outro-text">谢谢你，让我认识你。</p>
         </div>
       )}
-
-      <p className="ritual-ethics">仅用于微调本次交互的行为画像，不构成心理诊断</p>
     </div>
   );
 }

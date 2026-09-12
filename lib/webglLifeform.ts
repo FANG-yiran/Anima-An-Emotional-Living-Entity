@@ -39,8 +39,8 @@ export const STATE_PARAMS: Record<AttachmentState, StateParams> = {
   dormant:  { cohesion: 0.05, cursorForce: 0.1, vortex: 0,   connect: 0,   turbulence: 0.02, fluidMix: 0,    orbit: 0,   migration: 0,  sandPull: 0,  repel: 0, split: 0, size: 1.0,  colorTemp: 0.2  },
   secure:   { cohesion: 0.55, cursorForce: 0.4, vortex: 0.1, connect: 0.2, turbulence: 0.05, fluidMix: 0.1,  orbit: 1,   migration: 0,  sandPull: 0.3, repel: 0, split: 0, size: 1.15, colorTemp: 0.5  },
   anxious:  { cohesion: 0.75, cursorForce: 0.9, vortex: 0.3, connect: 0.4, turbulence: 0.25, fluidMix: 1,    orbit: 0,   migration: 0,  sandPull: 0,  repel: 0, split: 0, size: 1.4,  colorTemp: 0.7  },
-  avoidant: { cohesion: 0.2,  cursorForce: 0.15, vortex: 0,  connect: 0.05, turbulence: 0.08, fluidMix: 0.05, orbit: 0,  migration: 1,  sandPull: 0,  repel: 1, split: 0, size: 0.9,  colorTemp: 0.4  },
-  fearful:  { cohesion: 0.4,  cursorForce: 0.7, vortex: 0.8, connect: 0.15, turbulence: 0.45, fluidMix: 0.3,  orbit: 0,   migration: 0,  sandPull: 0,  repel: 0, split: 0.5, size: 1.25, colorTemp: 0.6  },
+  avoidant: { cohesion: 0.28, cursorForce: 0.38, vortex: 0,  connect: 0.05, turbulence: 0.08, fluidMix: 0.05, orbit: 0,  migration: 1,  sandPull: 0,  repel: 1, split: 0, size: 0.9,  colorTemp: 0.4  },
+  fearful:  { cohesion: 0.45, cursorForce: 0.65, vortex: 0.55, connect: 0.15, turbulence: 0.26, fluidMix: 0.2,  orbit: 0,  migration: 0,  sandPull: 0,  repel: 0, split: 0.35, size: 1.2, colorTemp: 0.6  },
   fusion:   { cohesion: 0.7,  cursorForce: 0.5, vortex: 0.05, connect: 0.9, turbulence: 0.03, fluidMix: 0.3,  orbit: 0.4, migration: 0,  sandPull: 0.5, repel: 0, split: 0, size: 1.3,  colorTemp: 0.85 },
 };
 
@@ -61,7 +61,7 @@ function transitionSpeed(a: AttachmentState, b: AttachmentState): number {
   return TRANSITION_SPEED[k] ?? TRANSITION_SPEED[rk] ?? 1.0;
 }
 
-/** 六态判定：三轴 + 历史累积（融合态需解锁） */
+/** 六态判定：三轴 + 历史累积 + 相对上一态的粘滞（减少形态抖动） */
 export function detectAttachmentState(
   s: {
     axis_approach: number;
@@ -90,17 +90,32 @@ export function detectAttachmentState(
     return "fusion";
   }
 
-  // 恐惧/混乱：低安全 + 高唤醒（阈值继续放宽，优先于焦虑态）
-  if (sa < 0.5 && ar > 0.52) return "fearful";
-  // 焦虑：强接近 + 低安全 + 高唤醒
-  if (ap > 0.55 && sa < 0.5 && ar > 0.5) return "anxious";
-  // 回避：低接近 + 低唤醒（阈值继续放宽以提高出现概率）
-  if (ap < 0.52 && ar < 0.65 && sa < 0.68) return "avoidant";
-  // 安全：安全较高 + 接近适中（阈值收紧，降低出现概率）
-  if (sa > 0.6 && ap >= 0.45) return "secure";
+  // 候选态：边界清晰，但 avoidant 略放宽以便「退开/疏离」能进入螺旋
+  let candidate: AttachmentState | null = null;
+  if (sa < 0.42 && ar > 0.58) candidate = "fearful";
+  else if (ap > 0.58 && sa < 0.46 && ar > 0.52) candidate = "anxious";
+  else if (ap < 0.50 && ar < 0.62 && sa < 0.58) candidate = "avoidant";
+  else if (sa > 0.62 && ap >= 0.42) candidate = "secure";
 
-  // 兜底：沿用上态
-  return prev;
+  if (!candidate) return prev;
+  if (candidate === prev) return prev;
+
+  // 粘滞：换态需比维持上一态「更成立」——用余量二次确认
+  const margin = 0.05;
+  const holds = (st: AttachmentState): boolean => {
+    switch (st) {
+      case "fearful": return sa < 0.42 + margin && ar > 0.58 - margin;
+      case "anxious": return ap > 0.58 - margin && sa < 0.46 + margin && ar > 0.52 - margin;
+      case "avoidant": return ap < 0.50 + margin && ar < 0.62 + margin && sa < 0.58 + margin;
+      case "secure": return sa > 0.62 - margin && ap >= 0.42 - margin;
+      case "fusion": return fusionUnlocked && ap > 0.45 && sa > 0.45 && ar > 0.45;
+      case "dormant": return m < 0.18;
+      default: return false;
+    }
+  };
+  // 仅当当前态条件已不成立、候选态明确成立时才切换
+  if (holds(prev) && prev !== "dormant") return prev;
+  return candidate;
 }
 
 // ==================== 工具 ====================
@@ -351,43 +366,39 @@ void main(){
 }
 `;
 
-// ---- 回避态：动态上升螺线几何（更新 pass / 粒子点 pass / 曲线 pass 三处共享，保证过渡锚点与稳态曲线完全重合） ----
-// 5 条螺线沿海螺外形（底水管 → 灯泡体螺层 → 顶部螺塔）绕中轴盘旋上升；
-// 半径轮廓固定、角度沿 s 流动，投影为持续上升的螺纹；各线速度不同，近光标加速并外推避让。
+// ---- 回避态：动态上升螺线几何（更新 pass / 粒子点 pass 共享） ----
+// 螺线仅作「骨架」：粒子沿 5 条上升螺线聚成有厚度的光点簇（而非一维线条）；
+// 半径轮廓固定、角度沿 s 流动，投影为持续上升的螺纹；近光标加速并外推避让。
 const LINE_GEOM_GLSL = `
 #define SH_LINES 5.0
 // 壳截面半径（归一化 ×R），s: 0 底水管尖 → 1 螺塔顶
 float shellRadius(float s){
-  float canal = 0.015 + 0.08 * smoothstep(0.0, 0.14, s);          // 底部水管
-  float body  = 1.05 * exp(-pow((s - 0.40) / 0.175, 2.0));        // 灯泡形体螺层
+  float canal = 0.015 + 0.08 * smoothstep(0.0, 0.14, s);
+  float body  = 1.05 * exp(-pow((s - 0.40) / 0.175, 2.0));
   float spire = smoothstep(0.60, 0.72, s)
-              * pow(clamp((0.995 - s) / 0.34, 0.0, 1.0), 1.1) * 0.42; // 顶部螺塔层叠收窄
-  float suture = 1.0 + 0.04 * sin(s * 23.0) + 0.02 * sin(s * 41.0 + 2.1); // 缝合线起伏
+              * pow(clamp((0.995 - s) / 0.34, 0.0, 1.0), 1.1) * 0.42;
+  float suture = 1.0 + 0.04 * sin(s * 23.0) + 0.02 * sin(s * 41.0 + 2.1);
   return (canal + body + spire) * suture;
 }
-// 圈数沿壳的非线性分配（总和恰为整数 3：底水管不转、体螺层 0.9 圈大弧、螺塔 2.1 圈；
-// 整数总圈数保证 fract 流动回绕处相位连续、无折缝）
 float shellTurns(float s){
   return 0.9 * smoothstep(0.14, 0.58, s) + 2.1 * smoothstep(0.58, 0.99, s);
 }
-// 中轴水平位置：S 形微弯 + 缓慢摆动
 float shellCenter(float s, float time, float R){
   float bias = -0.10 * smoothstep(0.0, 0.35, s) + 0.05 * exp(-pow((s - 0.40) / 0.2, 2.0));
   float sway = 0.016 * sin(s * 5.3 + time * 0.22) + 0.010 * sin(s * 9.7 - time * 0.31 + 1.7);
   return (bias + sway) * R;
 }
 void shellFrameVars(out vec2 axis, out float H, out float R){
-  axis = vec2(uResW * 0.5, uResH * 0.52);
-  H = uResH * 0.88;
-  R = min(uResW, uResH) * 0.27;
+  // 螺线形态锚在交互中心（entityPos），不再是屏幕正中的装饰
+  axis = uCore;
+  H = min(uResH * 0.58, 520.0);
+  R = min(uResW, uResH) * 0.20;
 }
-// 每条螺线的相位 / 半径比例 / 上升速度（哈希决定，互不相同）
 void shellLineTraits(float lid, out float phase, out float rScale, out float upSpd){
   phase  = lid / SH_LINES * 6.2831853 + (hash(lid + 3.3) - 0.5) * 0.6;
   rScale = lid < 0.5 ? 1.0 : (0.93 + 0.11 * hash(lid + 13.7));
   upSpd  = 0.045 + 0.060 * hash(lid + 5.9);
 }
-// 螺线单点：给定屏幕纵向槽位 s，返回当前时刻位置/深度(z)/流动参数/避让量/上升速度
 void shellPoint(float lid, float s, float time, vec2 cursor, float hasCursor,
                 out vec2 p, out float depthZ, out float sEffOut, out float repAmt, out float upSpdOut){
   vec2 axis; float H, R;
@@ -397,13 +408,13 @@ void shellPoint(float lid, float s, float time, vec2 cursor, float hasCursor,
 
   vec2 dcBase = vec2(axis.x + shellCenter(s, time, R), axis.y + (0.5 - s) * H) - cursor;
   float rep = exp(-dot(dcBase, dcBase) / (2.0 * 95.0 * 95.0)) * hasCursor;
-  upSpd = upSpd * (1.0 + 2.4 * rep); // 靠近光标的螺线加速上升
+  // 近光标时螺纹略加速上升（幅度收敛，避免「被神秘力向上冲走」）
+  upSpd = upSpd * (1.0 + 0.7 * rep);
 
-  // 角度沿槽位流动 → 螺纹沿海螺轮廓持续上升（fract 回绕对周期函数无缝）
   float se = fract(s + time * upSpd);
   float th = shellTurns(se) * 6.2831853 + 0.22 * sin(se * 6.2831853 + hash(lid + 9.1) * 6.28318);
   float ang = th + phase;
-  float push = 1.0 + rep * 0.18; // 光标处局部外推让开
+  float push = 1.0 + rep * 0.18;
   float rad = shellRadius(s) * R * rScale * push;
   p = vec2(axis.x + shellCenter(s, time, R) + rad * cos(ang),
            axis.y + (0.5 - s) * H);
@@ -412,7 +423,6 @@ void shellPoint(float lid, float s, float time, vec2 cursor, float hasCursor,
   repAmt = rep;
   upSpdOut = upSpd;
 }
-// 螺线帧：在 shellPoint 基础上数值微分求切线/法线（法线垂直于可见螺纹）
 void shellFrame(float lid, float s, float time, vec2 cursor, float hasCursor,
                 out vec2 p, out vec2 nrm, out vec2 tanDir, out float depthZ,
                 out float sEffOut, out float repAmt, out float upSpdOut){
@@ -425,31 +435,51 @@ void shellFrame(float lid, float s, float time, vec2 cursor, float hasCursor,
   nrm = vec2(-tanDir.y, tanDir.x);
   depthZ = z0; sEffOut = se0; repAmt = r0; upSpdOut = u0;
 }
-// 粒子迁移锚点：选中粒子沿 5 条上升螺线分布（过渡时聚合成线）
+// 粒子迁移锚点：沿 5 条上升螺线聚成有厚度的光点簇（与其它态同一粒子语言）
+// - 78%：螺纹附近的软管状体（法向/切向抖动随壳半径放大，形成体积而非细线）
+// - 22%：壳体外缘稀薄尘雾，保持「半透明有机体」气质
 void lineInfo(float i, float t, vec2 cursor, float hasCursor,
               out vec2 lp, out float depth, out float sel, out float up, out vec2 lvel){
-  sel = step(hash(i + 201.0), 0.62);
+  float dust = step(0.78, hash(i + 201.0));
+  sel = 1.0; // 全员可见；尘雾靠厚度与亮度区分，不再硬筛成线
   float lid = hash(i + 91.0) < 0.28 ? 0.0 : floor(1.0 + hash(i + 92.0) * (SH_LINES - 1.0));
   float tt = hash(i + 203.0);
   vec2 p, nrm, td; float z, se, rep, usp;
   shellFrame(lid, tt, t, cursor, hasCursor, p, nrm, td, z, se, rep, usp);
-  float j1 = hash(i + 307.0) - 0.5;
-  float j2 = hash(i + 311.0) - 0.5;
-  lp = p + td * j1 * 4.0 + nrm * j2 * 2.4;
+
+  // 体厚度：螺层半径越大，光点云越厚（不再是 2–4px 的细线抖动）
+  vec2 axis; float H, R;
+  shellFrameVars(axis, H, R);
+  float localR = shellRadius(tt) * R;
+  float thick = (10.0 + localR * 0.38) * (1.0 + dust * 2.4);
+  float jN = (hash(i + 307.0) - 0.5) * 2.0 * thick;
+  float jT = (hash(i + 311.0) - 0.5) * (16.0 + dust * 40.0);
+  // 径向疏密：中心密、外缘疏（高斯近似）
+  float g = dust > 0.5 ? (0.55 + 0.45 * hash(i + 401.0)) : (0.25 + 0.75 * abs(hash(i + 401.0) - 0.5) * 2.0);
+  float jR = jN * (0.55 + 0.9 * g);
+  lp = p + td * jT + nrm * jR;
+  // 尘雾再向外缘轻推，避免全部贴在同一条螺纹上
+  if (dust > 0.5) {
+    lp += nrm * (hash(i + 407.0) - 0.5) * 22.0;
+  }
   depth = mix(0.35, 1.0, z);
+  // 尘雾略减深度对比，看起来更「雾」而非「脊线」
+  depth = mix(depth, 0.55 + 0.25 * z, dust * 0.55);
   up = se;
   vec2 p2, n2, t2; float z2, se2, r2, u2;
   shellFrame(lid, tt, t + 0.06, cursor, hasCursor, p2, n2, t2, z2, se2, r2, u2);
   lvel = (p2 - p) / 0.06;
   float lv = dot(lvel, lvel);
   if(lv > 40000.0) lvel *= 200.0 / sqrt(lv);
+  // 尘雾速度更松，不被螺纹拖成硬轨迹
+  lvel *= mix(1.0, 0.35, dust);
 }
 `;
 
-// 螺线样式（宽度/亮度；曲线片元着色器也注入）
+// 螺线样式：过渡期极淡骨架提示用（不再承担稳态视觉）
 const SHELL_STYLE_GLSL = `
-float shWidth(float lid){ return lid < 0.5 ? 9.0 : 5.4; }
-float shBaseA(float lid){ return lid < 0.5 ? 0.95 : 0.62; }
+float shWidth(float lid){ return lid < 0.5 ? 4.0 : 2.4; }
+float shBaseA(float lid){ return lid < 0.5 ? 0.35 : 0.22; }
 `;
 
 // ---- 粒子更新（GPGPU：位置+速度 FBO 乒乓） ----
@@ -493,27 +523,57 @@ vec2 uvFromIndex(float i){
   return (vec2(mod(i, uGridW), floor(i / uGridW)) + 0.5) / uGridSize;
 }
 
-// 各形态"家"位置（确定性，屏幕坐标）
+// 各形态「家」位置：统一用有体积的光点簇分布（与 VISUAL_CATALOG 气质对齐）
 vec2 homePos(float i, float stateId){
-  float r1 = hash(i), r2 = hash(i+3.7), r3 = hash(i+11.9);
-  if (stateId < 0.5) { // dormant：散落全空间
+  float r1 = hash(i), r2 = hash(i+3.7), r3 = hash(i+11.9), r4 = hash(i+19.3);
+  if (stateId < 0.5) { // dormant：散落星尘（全空间微光）
     return vec2(r1, r2) * vec2(uResW, uResH);
-  } else if (stateId < 1.5) { // secure：轨道环
-    float ang = r1 * 6.28318; float rad = 90.0 + r2 * 170.0;
-    return uCore + vec2(cos(ang), sin(ang)) * rad;
-  } else if (stateId < 2.5) { // anxious：团块包裹核心
-    float ang = r1 * 6.28318; float rad = r2 * r2 * 150.0;
-    return uCore + vec2(cos(ang), sin(ang)) * rad;
-  } else if (stateId < 3.5) { // avoidant：粒子聚合到螺旋上升的螺纹线上
+  } else if (stateId < 1.5) { // secure：柔和轨道环 + 厚度（低频呼吸的可停留体）
+    float ang = r1 * 6.28318;
+    // 主环 + 次级薄环，形成「柔软山丘/双层肌理」
+    float ring = step(r4, 0.72);
+    float rad = mix(70.0 + r2 * 55.0, 110.0 + r2 * 120.0, ring);
+    float ySquash = 0.72 + 0.2 * r3; // 轻微透视压扁
+    vec2 p = uCore + vec2(cos(ang), sin(ang) * ySquash) * rad;
+    // 环厚度方向噪声
+    p += vec2(cos(ang), sin(ang)) * (r3 - 0.5) * 22.0;
+    return p;
+  } else if (stateId < 2.5) { // anxious：同心波纹团块（感知过载的颗粒云）
+    // 三环 + 中心密核 + 外溢噪点
+    float band = floor(r3 * 3.0);
+    float rad0 = mix(18.0, 48.0, band) + r2 * mix(40.0, 110.0, band / 2.0);
+    // 高频波纹：半径随角度起伏
+    rad0 *= 1.0 + 0.12 * sin(r1 * 12.0 * 6.28318 + band);
+    float ang = r1 * 6.28318;
+    vec2 p = uCore + vec2(cos(ang), sin(ang)) * rad0 * r2;
+    // 12% 粒子外溢，形成「高频外溢」
+    if (r4 > 0.88) {
+      p += (vec2(hash(i+29.1), hash(i+31.7)) - 0.5) * vec2(uResW, uResH) * 0.35;
+    }
+    return p;
+  } else if (stateId < 3.5) { // avoidant：沿上升螺线的有厚度光点簇（见 lineInfo）
     vec2 lp2; float ld2; float ls2; float lu2; vec2 lv2;
     lineInfo(i, uTime, uCursor, uHasCursor, lp2, ld2, ls2, lu2, lv2);
     return lp2;
-  } else if (stateId < 4.5) { // fearful：涡旋核散布
-    float ang = r1 * 6.28318; float rad = 60.0 + r2 * min(uResW, uResH) * 0.3;
-    return uCore + vec2(cos(ang), sin(ang)) * rad;
-  } else { // fusion：紧密包裹 + 丝线聚集
-    float ang = r1 * 6.28318; float rad = 40.0 + r3 * 90.0;
-    return uCore + vec2(cos(ang), sin(ang)) * rad;
+  } else if (stateId < 4.5) { // fearful：多涡旋核 + 撕裂散布
+    float cell = floor(r3 * 5.0);
+    vec2 k = hash2(cell * 13.0 + 1.0);
+    vec2 axis = vec2(k.x, k.y) * vec2(uResW, uResH) * 0.7 + uCore * 0.3;
+    float ang = r1 * 6.28318;
+    float rad = 40.0 + r2 * min(uResW, uResH) * 0.28;
+    vec2 p = axis + vec2(cos(ang), sin(ang)) * rad;
+    // 撕裂带：沿主轴拉长
+    p.x += (r4 - 0.5) * min(uResW, uResH) * 0.25;
+    return p;
+  } else { // fusion：紧密包裹核心 + 外围缠绕丝带（连接/共生）
+    float ang = r1 * 6.28318;
+    float inner = step(r4, 0.55);
+    float rad = mix(28.0 + r2 * 55.0, 70.0 + r2 * 100.0, inner);
+    // 外围粒子沿椭圆缠绕，模拟丝带包覆
+    float wrapAng = ang + r3 * 1.2;
+    float rx = rad * (1.0 + 0.15 * sin(wrapAng * 2.0));
+    float ry = rad * 0.78;
+    return uCore + vec2(cos(wrapAng) * rx, sin(wrapAng) * ry);
   }
 }
 
@@ -522,7 +582,7 @@ vec2 bezierHome(vec2 p0, vec2 p1, float t, float i){
   vec2 d = p1 - p0;
   vec2 perp = vec2(-d.y, d.x);
   perp = perp / (length(perp) + 1e-4);
-  float amp = (hash(i + 9.1) - 0.5) * min(uResW, uResH) * 0.22;
+  float amp = (hash(i + 9.1) - 0.5) * min(uResW, uResH) * 0.12;
   vec2 c0 = p0 + perp * amp;
   vec2 c1 = p1 + perp * amp;
   float it = 1.0 - t;
@@ -566,16 +626,21 @@ void main(){
   float sgn = mix(1.0, -1.0, step(r1, uSplit));
   f += vec2(-dA.y, dA.x) / dA2 * uVortex * dA2 * 1.6 * sgn;
 
-  // 光标力
+  // 光标力（回避态斥力减弱，并按距离衰减，远离时几乎不再「推走」光流）
   if (uHasCursor > 0.5) {
     vec2 toC = uCursor - pos;
     float dC3 = length(toC) + 1e-4;
-    float fall = exp(-dC3 / 150.0);
+    float fall = exp(-dC3 / 120.0);
+    float mag = uCursorForce * 320.0 * fall;
+    // 退开时（光标相对质心已远）进一步削弱，避免整团被甩开
+    float coreD = length(uCursor - uCore) + 1e-4;
+    float away = smoothstep(180.0, 420.0, coreD);
+    mag *= mix(1.0, 0.35, uRepel * away);
     vec2 dir = uRepel > 0.5 ? -toC / dC3 : toC / dC3;
-    f += dir * uCursorForce * 520.0 * fall;
+    f += dir * mag;
   }
 
-  // 回避态：螺纹锚点（积分后直接捕获位置，保证粒子严丝合缝组成线条；过渡时聚合）
+  // 回避态：螺纹骨架软捕获（保持光点簇呼吸，不锁死成细线）
   vec2 lineAnchor = pos;
   vec2 lineVel = vel;
   if (uMigration > 0.01) {
@@ -620,11 +685,14 @@ void main(){
   vel *= max(0.0, 1.0 - 1.9 * uDt);
   pos += vel * uDt;
 
-  // 回避态：每帧向螺纹锚点捕获（migration 随过渡 0→1，粒子由自由运动逐渐聚合为线条）
+  // 回避态：软弹簧式靠向螺纹骨架（低 k + 不锁速度 → 仍是粒子云，不是描边）
   if (uMigration > 0.01) {
-    float k = clamp(uMigration * 0.12, 0.0, 1.0);
+    float k = clamp(uMigration * 0.055, 0.0, 0.75);
     pos = mix(pos, lineAnchor, k);
-    vel = mix(vel, lineVel, clamp(k * 1.5, 0.0, 1.0));
+    vel = mix(vel, lineVel, clamp(k * 0.55, 0.0, 0.55));
+    // 极轻的切向漂移，让簇体有「上升呼吸」而非静态描线
+    vel += normalize(lineVel + vec2(1e-3)) * uMigration * 18.0 * uDt
+         * sin(uTime * 1.4 + r1 * 6.28318);
   }
 
   // 边界软约束
@@ -653,6 +721,7 @@ uniform vec2 uCursor;
 uniform float uHasCursor;
 uniform float uResW;
 uniform float uResH;
+uniform vec2 uCore;
 out float vTwinkle;
 out float vSeed;
 out float vDepth;
@@ -667,14 +736,15 @@ void main(){
   float spd = length(pv.zw);
   vSeed = hash(i);
   vTwinkle = 0.55 + 0.45 * sin(uTime * 2.0 + vSeed * 40.0);
-  // 回避态螺纹：按槽位筛选线粒子（其余淡雾），按螺旋正反面给深度明暗
+  // 回避态：按螺旋正反面给深度明暗（保留体积感），不再把粒子筛成「线」
   vec2 lp; float ld; float ls; float lu; vec2 lv;
   lineInfo(i, uTime, uCursor, uHasCursor, lp, ld, ls, lu, lv);
-  vDepth = mix(1.0, 0.12 + 0.88 * ld, uLineMode);
-  vLineA = mix(1.0, mix(0.0, 1.0, ls), uLineMode);
+  vDepth = mix(1.0, 0.18 + 0.82 * ld, uLineMode);
+  vLineA = 1.0;
   vec2 nd = vec2(pos.x / uRes.x * 2.0 - 1.0, 1.0 - pos.y / uRes.y * 2.0);
   gl_Position = vec4(nd, 0.0, 1.0);
-  gl_PointSize = uSize * (1.2 + vSeed * 1.1) * (1.0 + min(spd * 0.02, 0.6)) * mix(1.0, 2.2, uLineMode);
+  // 与其它态同一量级的点径；螺纹态只略增，避免点叠成实线
+  gl_PointSize = uSize * (1.2 + vSeed * 1.1) * (1.0 + min(spd * 0.02, 0.6)) * mix(1.0, 1.15, uLineMode);
 }
 `;
 const points_frag = `
@@ -696,11 +766,11 @@ void main(){
   if (d > 1.0) discard;
   float soft = smoothstep(1.0, 0.0, d);
   vec3 col = texture(uPalette, vec2(uColorTemp + (vSeed - 0.5) * 0.07, 0.5)).rgb;
-  // 螺纹态：提高 alpha 基线、压低闪烁（硬朗线条而非烟雾），正反面明暗塑造立体螺纹
-  float a = soft * mix(0.2 + 0.8 * vTwinkle, 0.34 + 0.08 * vTwinkle, uLineMode) * 0.85;
-  a *= vLineA * vDepth;
-  a *= mix(1.0, 0.0, uLineMode * uCurveFade); // 稳态壳线接管，粒子淡出
-  col *= mix(1.0 + 0.25 * (1.0 - vTwinkle), 1.0, uLineMode) * vDepth;
+  // 与其它态同一软粒子语言：保留闪烁；整体压暗，避免光点叠成过亮光斑
+  float a = soft * mix(0.2 + 0.8 * vTwinkle, 0.22 + 0.55 * vTwinkle, uLineMode) * 0.42;
+  a *= vLineA * mix(1.0, 0.55 + 0.45 * vDepth, uLineMode);
+  a *= mix(1.0, 0.0, uLineMode * uCurveFade);
+  col *= mix(1.0 + 0.25 * (1.0 - vTwinkle), 0.75 + 0.35 * vDepth, uLineMode) * 0.92;
   fragColor = vec4(col, a);
 }
 `;
@@ -716,6 +786,7 @@ uniform float uResH;
 uniform float uTime;
 uniform vec2 uCursor;
 uniform float uHasCursor;
+uniform vec2 uCore;
 out float vSide;
 out float vLine;
 out float vT;
@@ -802,10 +873,10 @@ uniform float uConnect;
 in float vSeed;
 out vec4 fragColor;
 void main(){
-  float alpha = clamp((uConnect - 0.3) * 1.4, 0.0, 0.75);
-  alpha *= 0.6 + 0.4 * vSeed;
+  float alpha = clamp((uConnect - 0.3) * 0.85, 0.0, 0.38);
+  alpha *= 0.45 + 0.35 * vSeed;
   if (alpha < 0.004) discard;
-  vec3 col = texture(uPalette, vec2(uColorTemp, 0.5)).rgb * 1.2; // 亮度 +20%
+  vec3 col = texture(uPalette, vec2(uColorTemp, 0.5)).rgb;
   fragColor = vec4(col, alpha);
 }
 `;
@@ -838,11 +909,12 @@ void main(){
   if (d > 1.0) discard;
   float soft = smoothstep(1.0, 0.0, d);
   if (vKind < 0.5) {
+    // 核心只作极淡环境光，不再呈现为独立「光球」——交互对象是粒子形态本身
     vec3 col = texture(uPalette, vec2(uColorTemp, 0.5)).rgb;
-    float a = soft * (0.18 + 0.3 * uManifest);
-    fragColor = vec4(col * (1.4 + uManifest), a);
+    float a = soft * (0.03 + 0.05 * uManifest);
+    fragColor = vec4(col * (0.7 + uManifest * 0.4), a);
   } else {
-    float a = soft * 0.55;
+    float a = soft * 0.28;
     fragColor = vec4(vec3(0.93, 0.96, 1.0), a);
   }
 }
@@ -1128,7 +1200,7 @@ class FluidSim {
     this.options = {
       iterations_poisson: 24,
       iterations_viscous: 24,
-      mouse_force: 22,
+      mouse_force: 12,
       resolution: 0.25,
       cursor_size: 100,
       viscous: 30,
@@ -1355,6 +1427,11 @@ export class WebGLLifeform {
   private shellAlpha = 0;
   private particleFade = 0;
 
+  /** 引擎表面距离判定用：当前目标形态 */
+  get visualState(): AttachmentState {
+    return this.targetState;
+  }
+
   // 光标
   private lastCursor: { x: number; y: number } | null = null;
   private lastCursorAt = 0;
@@ -1498,6 +1575,7 @@ export class WebGLLifeform {
         uCurveFade: { value: 0 },
         uCursor: { value: new THREE.Vector2(0, 0) },
         uHasCursor: { value: 0 },
+        uCore: { value: new THREE.Vector2(this.width / 2, this.height / 2) },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -1553,7 +1631,7 @@ export class WebGLLifeform {
     // 核心 + 光标辉光
     const gGeo = new THREE.BufferGeometry();
     const gPos = new Float32Array(2 * 3);
-    const gSize = new Float32Array([150, 16]);
+    const gSize = new Float32Array([48, 12]);
     const gKind = new Float32Array([0, 1]);
     gGeo.setAttribute("position", new THREE.BufferAttribute(gPos, 3));
     gGeo.setAttribute("aSize", new THREE.BufferAttribute(gSize, 1));
@@ -1615,6 +1693,7 @@ export class WebGLLifeform {
         uCursor: { value: new THREE.Vector2(0, 0) },
         uHasCursor: { value: 0 },
         uOpacity: { value: 0 },
+        uCore: { value: new THREE.Vector2(this.width / 2, this.height / 2) },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -1658,7 +1737,7 @@ export class WebGLLifeform {
         this.pendingState = detected;
         this.pendingFrames = 0;
       }
-      if (this.pendingFrames >= 20 && detected !== this.targetState) {
+      if (this.pendingFrames >= 40 && detected !== this.targetState) {
         this.setTarget(detected);
       }
     }
@@ -1708,9 +1787,10 @@ export class WebGLLifeform {
     // 渲染 uniform
     const PM = this.pointsMat.uniforms;
     PM.uTime.value = snap.elapsed;
-    PM.uSize.value = 2.2 * cur.size * Math.max(0.6, Math.min(1.6, this.width / 1100));
+    PM.uSize.value = 1.55 * cur.size * Math.max(0.55, Math.min(1.25, this.width / 1200));
     PM.uColorTemp.value = cur.colorTemp;
     PM.uLineMode.value = cur.migration;
+    PM.uCore.value.set(snap.entityPos.x, snap.entityPos.y);
     if (snap.cursorPos) {
       PM.uCursor.value.set(snap.cursorPos.x, snap.cursorPos.y);
       PM.uHasCursor.value = 1;
@@ -1718,14 +1798,15 @@ export class WebGLLifeform {
       PM.uHasCursor.value = 0;
     }
 
-    // 回避态壳线交接：morph 末期平滑曲线淡入、粒子点淡出（离开时快速淡出）
+    // 回避态：不再用连续壳线接管视觉（那会把光点簇画成描边线条）。
+    // 仅在进入过渡期保留极淡骨架提示，稳态始终由粒子簇呈现。
     const ss01 = (e0: number, e1: number, x: number) => {
       const y = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
       return y * y * (3 - 2 * y);
     };
     const entering = this.targetState === "avoidant" ? 1 : 0;
-    const shellTarget = entering ? ss01(0.45, 0.95, mf) : 0;
-    const fadeTarget = entering ? ss01(0.62, 1.0, mf) : 0;
+    const shellTarget = entering ? ss01(0.55, 0.85, mf) * (1 - ss01(0.85, 1.0, mf)) * 0.12 : 0;
+    const fadeTarget = 0; // 粒子永不因「壳线接管」而隐去
     const ka = Math.min(1, dtSec * 4.5);
     this.shellAlpha += (shellTarget - this.shellAlpha) * ka;
     this.particleFade += (fadeTarget - this.particleFade) * ka;
@@ -1735,6 +1816,7 @@ export class WebGLLifeform {
     CM.uResW.value = this.width;
     CM.uResH.value = this.height;
     CM.uOpacity.value = this.shellAlpha;
+    CM.uCore.value.set(snap.entityPos.x, snap.entityPos.y);
     if (snap.cursorPos) {
       CM.uCursor.value.set(snap.cursorPos.x, snap.cursorPos.y);
       CM.uHasCursor.value = 1;
@@ -1759,7 +1841,7 @@ export class WebGLLifeform {
     gp[4] = snap.cursorPos ? snap.cursorPos.y : -9999;
     gAttr.position.needsUpdate = true;
     const gs = gAttr.aSize.array as Float32Array;
-    gs[0] = 60 + snap.manifestProgress * 160;
+    gs[0] = 36 + snap.manifestProgress * 70;
     gAttr.aSize.needsUpdate = true;
 
     // 流体光标（NDC + 速度）
@@ -1844,6 +1926,8 @@ export class WebGLLifeform {
     this.updateMaterial.uniforms.uResW.value = this.width;
     this.updateMaterial.uniforms.uResH.value = this.height;
     this.pointsMat.uniforms.uRes.value.set(this.width, this.height);
+    this.pointsMat.uniforms.uResW.value = this.width;
+    this.pointsMat.uniforms.uResH.value = this.height;
     this.threadsMat.uniforms.uRes.value.set(this.width, this.height);
     this.glowMat.uniforms.uRes.value.set(this.width, this.height);
   }

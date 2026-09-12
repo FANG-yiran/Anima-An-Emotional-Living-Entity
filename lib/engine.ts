@@ -1,6 +1,8 @@
 // ============ 交互引擎：动作判定 + 内部状态 + 事件日志（文档 §2.1/§2.2/§3.1） ============
 import { ACTION, AXIS_CONFIG, NOISE_SIGMA, incrementFor, phaseFor } from "./constants";
 import { decideBehavior, entityMovement, responseLatency } from "./entityBehavior";
+import { surfaceDistanceToForm } from "./formBody";
+import type { AttachmentState } from "./webglLifeform";
 import type {
   ActionType,
   AttachmentMarkers,
@@ -49,6 +51,8 @@ export class AnimaEngine {
   private entityPos = { x: 600, y: 400 };
   private entityBehavior: EntityBehavior = "ignore";
   private pendingBehavior: { behavior: EntityBehavior; at: number } | null = null;
+  /** 渲染层同步的当前光流形态；接近/触碰相对该形态体表面计算 */
+  private visualState: AttachmentState = "dormant";
 
   // 事件与统计
   events: EventLogEntry[] = [];
@@ -108,6 +112,20 @@ export class AnimaEngine {
     return { ...this.entityPos };
   }
 
+  /** 由 InteractionStage / WebGLLifeform 每帧同步 */
+  setVisualState(s: AttachmentState) {
+    this.visualState = s;
+  }
+
+  get visualStateNow(): AttachmentState {
+    return this.visualState;
+  }
+
+  /** 光标到当前形态体表面的距离；体内为 0 */
+  private surfaceDist(x: number, y: number): number {
+    return surfaceDistanceToForm({ x, y }, this.entityPos, this.visualState, this.bounds);
+  }
+
   start(now = performance.now()) {
     if (this.started) return;
     this.startTime = now;
@@ -160,7 +178,7 @@ export class AnimaEngine {
     this.speed = d / dt * 1000;
     this.lastSample = { x, y, t: now };
 
-    const dist = Math.hypot(x - this.entityPos.x, y - this.entityPos.y);
+    const dist = this.surfaceDist(x, y);
     const canEmit = now - this.lastEventAt >= ACTION.MIN_EVENT_INTERVAL;
 
     // 首次采样只建立基线，不触发事件
@@ -169,21 +187,21 @@ export class AnimaEngine {
       return;
     }
 
-    // approach / retreat：距离相对上次事件累计变化超过阈值
+    // approach / retreat：相对形态体表面的距离变化
     if (canEmit && Math.abs(this.distAtLastEvent - dist) >= ACTION.APPROACH_DIST_DELTA) {
       const action: ActionType = dist < this.distAtLastEvent ? "approach" : "retreat";
       this.distAtLastEvent = dist;
       this.emitEvent(action, { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 }, now);
     }
 
-    // glide：快速经过生命体附近且停留 < 0.2s
+    // glide：快速掠过形态体表面附近且停留 < 0.2s
     const nearZone = ACTION.REACH_RADIUS * 1.5;
     if (dist < nearZone) {
       if (this.nearSince === 0) this.nearSince = now;
       if (
         canEmit &&
         this.speed > ACTION.GLIDE_SPEED &&
-        dist < ACTION.REACH_RADIUS &&
+        dist <= ACTION.REACH_RADIUS &&
         now - this.nearSince < ACTION.GLIDE_MAX_DWELL
       ) {
         this.emitEvent("glide", { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 }, now);
@@ -237,15 +255,15 @@ export class AnimaEngine {
         "dblclick",
         {
           cursor_speed: this.speed,
-          distance_to_entity: Math.hypot(x - this.entityPos.x, y - this.entityPos.y),
+          distance_to_entity: this.surfaceDist(x, y),
           pause_duration: 0,
         },
         now
       );
     } else if (!this.dragging && moved < ACTION.DRAG_THRESHOLD && duration < ACTION.HOLD_DURATION) {
-      // 普通单击 → 触碰（仅生命体附近判定为 reach）
-      const dist = Math.hypot(x - this.entityPos.x, y - this.entityPos.y);
-      if (dist <= ACTION.REACH_RADIUS) {
+      // 触碰：光标落在形态体表面内（或贴边）
+      const dist = this.surfaceDist(x, y);
+      if (dist <= 8) {
         this.emitEvent(
           "reach",
           { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 },
@@ -311,9 +329,7 @@ export class AnimaEngine {
         this.holdEmitted = true;
         this.holdStartedAt = now;
         this.interactionMode = "hold";
-        const dist = this.cursorPos
-          ? Math.hypot(this.cursorPos.x - this.entityPos.x, this.cursorPos.y - this.entityPos.y)
-          : Infinity;
+        const dist = this.cursorPos ? this.surfaceDist(this.cursorPos.x, this.cursorPos.y) : Infinity;
         this.emitEvent(
           "hold",
           { cursor_speed: 0, distance_to_entity: dist, pause_duration: now - this.pressAt },
@@ -324,7 +340,7 @@ export class AnimaEngine {
       // drag：拖拽中周期性地记录引导事件
       if (this.dragging && now - this.dragLastEmitAt >= 800) {
         this.dragLastEmitAt = now;
-        const dist = Math.hypot(this.cursorPos!.x - this.entityPos.x, this.cursorPos!.y - this.entityPos.y);
+        const dist = this.surfaceDist(this.cursorPos!.x, this.cursorPos!.y);
         this.emitEvent(
           "drag",
           { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 },
@@ -341,7 +357,7 @@ export class AnimaEngine {
       ) {
         this.stillEmitted = true;
         this.interactionMode = "still";
-        const dist = Math.hypot(this.cursorPos.x - this.entityPos.x, this.cursorPos.y - this.entityPos.y);
+        const dist = this.surfaceDist(this.cursorPos.x, this.cursorPos.y);
         this.emitEvent(
           "still",
           { cursor_speed: 0, distance_to_entity: dist, pause_duration: now - this.lastInputAt },
@@ -359,9 +375,7 @@ export class AnimaEngine {
     // pause：停止 ≥ 0.5s（一次性触发）
     if (!this.pauseEmitted && now - this.lastInputAt >= ACTION.PAUSE_DURATION) {
       this.pauseEmitted = true;
-      const dist = this.cursorPos
-        ? Math.hypot(this.cursorPos.x - this.entityPos.x, this.cursorPos.y - this.entityPos.y)
-        : Infinity;
+      const dist = this.cursorPos ? this.surfaceDist(this.cursorPos.x, this.cursorPos.y) : Infinity;
       this.emitEvent(
         "pause",
         { cursor_speed: 0, distance_to_entity: dist, pause_duration: ACTION.PAUSE_DURATION },
@@ -395,7 +409,7 @@ export class AnimaEngine {
     const mv = entityMovement(this.entityBehavior, this.entityPos, this.cursorPos);
     this.entityPos.x += mv.vx * dtSec;
     this.entityPos.y += mv.vy * dtSec;
-    const m = 55;
+    const m = 80; // 形态体量更大，边界留足
     this.entityPos.x = Math.min(this.bounds.w - m, Math.max(m, this.entityPos.x));
     this.entityPos.y = Math.min(this.bounds.h - m, Math.max(m, this.entityPos.y));
   }
