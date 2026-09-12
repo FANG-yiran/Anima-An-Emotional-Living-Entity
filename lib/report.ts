@@ -38,7 +38,7 @@ export function matchTemplate(scores: SevenScores): Template {
   return best ?? TEMPLATES[0];
 }
 
-/** 关键词选择：按七维高分/低分从关键词库取 3-5 个 */
+/** 关键词选择：按八维高分/低分从关键词库取 3-5 个 */
 export function selectKeywords(scores: SevenScores, connectionScore: number): string[] {
   const picked: string[] = [];
   const push = (arr: string[]) => {
@@ -56,6 +56,7 @@ export function selectKeywords(scores: SevenScores, connectionScore: number): st
     "uncertainty_tolerance",
     "boundary",
     "repair_tendency",
+    "manifest_presence",
   ];
   // 按“显著程度”排序（离 50 越远越显著）
   const ranked = [...dims].sort((a, b) => Math.abs(scores[b] - 50) - Math.abs(scores[a] - 50));
@@ -96,6 +97,7 @@ export function buildRuleReport(
     scores,
     description: tpl.text,
     conflict_note: conflictNote,
+    llm_enhanced: false,
     ethics_note: ETHICS_NOTE,
   };
 }

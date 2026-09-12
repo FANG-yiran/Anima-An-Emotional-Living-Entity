@@ -67,7 +67,7 @@ export default function Home() {
       if (!session) return;
       setStage("generating");
 
-      // ---- 确定性计算（始终本地完成） ----
+      // ---- 确定性计算（始终本地完成，作为兜底） ----
       const behaviorScores = computeSevenScores(session.events, session.durationSec);
       const { scores, conflictNote } = fuseWithQuestionnaire(behaviorScores, answers);
       const five = computeFiveIndicators(session.events, session.durationSec);
@@ -75,10 +75,9 @@ export default function Home() {
       const sessionLog = buildSessionLog(session.events, session.durationSec, scores);
       const tpl = matchTemplate(scores);
       const ruleReport: ReportData = buildRuleReport(conn.score, conn.label, scores, conflictNote);
-      setReport(ruleReport);
-      setStage("report");
 
-      // ---- LLM Agent 增强（失败自动回退规则版） ----
+      // ---- 评估期间不展示固定结果：第三性正在观察，等待 LLM 生成 ----
+      let finalReport: ReportData = ruleReport;
       try {
         const res = await fetch("/api/agent", {
           method: "POST",
@@ -93,15 +92,18 @@ export default function Home() {
         });
         const data = await res.json();
         if (!data.fallback && Array.isArray(data.keywords) && data.keywords.length && data.description) {
-          setReport({
+          finalReport = {
             ...ruleReport,
             keywords: data.keywords.slice(0, 5),
             description: data.description,
-          });
+            llm_enhanced: true,
+          };
         }
       } catch {
         // 保持规则版报告
       }
+      setReport(finalReport);
+      setStage("report");
     },
     []
   );
@@ -147,9 +149,13 @@ export default function Home() {
     return (
       <main className="app-root">
         <div className="generating">
-          <div className="generating-orb" aria-hidden="true" />
-          <div className="loading-text">正在整理这面关系之镜…</div>
-          <p className="generating-sub">你的动作、它的回应，以及你写在问卷里的感受，正在被编织在一起。</p>
+          <div className="observer-eye" aria-hidden="true">
+            <span className="observer-iris" />
+          </div>
+          <div className="loading-text">第三性正在观察</div>
+          <p className="generating-sub">
+            一个既不属于你、也不属于生命体的第三者，正安静地注视你们之间发生的一切，并把它织成一句话。
+          </p>
         </div>
       </main>
     );

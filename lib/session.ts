@@ -17,13 +17,16 @@ export function buildSessionLog(
   const m = deriveMetrics(events, durationSec);
 
   // 主导轴：按事件间平均状态相对基线的偏移量取前二
+  // axis_manifest 是元轴（随任何互动自然成长），排除以免始终占据主导
   const offset = (key: AxisKey) => {
     if (events.length === 0) return 0;
     const avg =
       events.reduce((s, e) => s + e.internal_state_after[key], 0) / events.length;
     return Math.abs(avg - AXIS_CONFIG[key].baseline);
   };
-  const axes = (Object.keys(AXIS_CONFIG) as AxisKey[]).sort((a, b) => offset(b) - offset(a));
+  const axes = (Object.keys(AXIS_CONFIG) as AxisKey[])
+    .filter((k) => k !== "axis_manifest")
+    .sort((a, b) => offset(b) - offset(a));
   const dominant_axes = axes.slice(0, 2);
 
   return {

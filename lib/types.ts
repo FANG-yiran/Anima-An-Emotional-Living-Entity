@@ -1,7 +1,20 @@
 // ============ 共享类型定义 ============
 
 /** 用户鼠标动作类型（文档 §2.1） */
-export type ActionType = "approach" | "retreat" | "pause" | "reach" | "glide" | "leave";
+export type ActionType =
+  | "approach"
+  | "retreat"
+  | "pause"
+  | "reach"
+  | "glide"
+  | "leave"
+  | "dblclick" // 双击唤醒
+  | "hold" // 长按呼吸同步
+  | "drag" // 按住拖动引导
+  | "still"; // 长时间静止孵化
+
+/** 交互输入模式（渲染层用于驱动粒子行为） */
+export type InteractionMode = "none" | "hold" | "drag" | "still" | "burst";
 
 /** 生命体表达行为（文档 §2.2/§6） */
 export type EntityBehavior = "retreat" | "dodge" | "approach" | "ignore" | "hesitate";
@@ -15,6 +28,7 @@ export interface InternalState {
   axis_safety: number; // 安全-防御
   axis_arousal: number; // 情绪强度
   axis_memory: number; // 记忆-期待
+  axis_manifest: number; // 显现-弥散（被看见/被激活程度）
 }
 
 export type AxisKey = keyof InternalState;
@@ -54,7 +68,7 @@ export interface KeyMoment {
   description: string;
 }
 
-/** 七维关系画像分数（文档 §4.2） */
+/** 八维关系画像分数（文档 §4.2） */
 export interface SevenScores {
   approach_tendency: number; // 靠近倾向
   confirmation_need: number; // 确认需求
@@ -63,6 +77,7 @@ export interface SevenScores {
   uncertainty_tolerance: number; // 不确定耐受
   boundary: number; // 边界
   repair_tendency: number; // 修复倾向
+  manifest_presence: number; // 被看见/存在感
 }
 
 export type SevenDimKey = keyof SevenScores;
@@ -106,6 +121,7 @@ export interface ReportData {
   scores: SevenScores;
   description: string;
   conflict_note?: string;
+  llm_enhanced: boolean; // 关键词/描述是否由 LLM 生成（false = 本地规则引擎）
   ethics_note: string;
 }
 
@@ -122,4 +138,7 @@ export interface EngineSnapshot {
   entityPos: { x: number; y: number };
   entityBehavior: EntityBehavior;
   cursorPos: { x: number; y: number } | null;
+  manifestProgress: number; // 显现进度 0-1（= axis_manifest）
+  interactionMode: InteractionMode; // 当前输入模式
+  holdPhase: number; // 呼吸相位 0-1（按住时随时间推进）
 }

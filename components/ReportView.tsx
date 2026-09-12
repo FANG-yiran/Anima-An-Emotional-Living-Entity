@@ -16,6 +16,7 @@ const DIM_ORDER: SevenDimKey[] = [
   "uncertainty_tolerance",
   "boundary",
   "repair_tendency",
+  "manifest_presence",
 ];
 
 function dimColor(dim: SevenDimKey): string {
@@ -27,6 +28,7 @@ function dimColor(dim: SevenDimKey): string {
     case "uncertainty_tolerance": return "linear-gradient(90deg,#a78bfa,#6ee7ff)";
     case "boundary": return "linear-gradient(90deg,#94a3b8,#6ee7ff)";
     case "repair_tendency": return "linear-gradient(90deg,#f0abfc,#4ade80)";
+    case "manifest_presence": return "linear-gradient(90deg,#e2e8f0,#6ee7ff)";
   }
 }
 
@@ -82,6 +84,9 @@ export default function ReportView({ report, onRestart }: Props) {
           <div className="report-h">关系描述</div>
           <p className="report-desc">{report.description}</p>
           {report.conflict_note && <p className="report-conflict">◈ {report.conflict_note}</p>}
+          {!report.llm_enhanced && (
+            <p className="report-source-note">本次报告由本地规则引擎生成，未接入第三方 LLM。</p>
+          )}
         </div>
 
         <div className="report-ethics">{report.ethics_note}</div>

@@ -7,6 +7,7 @@ import type {
   EngineSnapshot,
   EntityBehavior,
   EventLogEntry,
+  InteractionMode,
   InternalState,
   Phase,
   UserActionParams,
@@ -40,6 +41,7 @@ export class AnimaEngine {
     axis_safety: AXIS_CONFIG.axis_safety.initial,
     axis_arousal: AXIS_CONFIG.axis_arousal.initial,
     axis_memory: AXIS_CONFIG.axis_memory.initial,
+    axis_manifest: AXIS_CONFIG.axis_manifest.initial,
   };
 
   // 光标与生命体
@@ -52,6 +54,7 @@ export class AnimaEngine {
   events: EventLogEntry[] = [];
   private actionCounts: Record<ActionType, number> = {
     approach: 0, retreat: 0, pause: 0, reach: 0, glide: 0, leave: 0,
+    dblclick: 0, hold: 0, drag: 0, still: 0,
   };
   private behaviorCounts: Record<EntityBehavior, number> = {
     retreat: 0, dodge: 0, approach: 0, ignore: 0, hesitate: 0,
@@ -69,6 +72,20 @@ export class AnimaEngine {
   private lastInputAt = 0;
   private pauseEmitted = true; // 尚未开始静止
   private leaveEmitted = true;
+
+  // 新增互动状态（双击/长按/拖拽/静止）
+  private pressing = false;
+  private dragging = false;
+  private pressAt = 0;
+  private pressStartPos = { x: 0, y: 0 };
+  private holdEmitted = false;
+  private holdStartedAt = 0;
+  private dragLastEmitAt = 0;
+  private stillEmitted = true;
+  private lastClickDownAt = -1e9;
+  private lastClickDownPos = { x: 0, y: 0 };
+  private doubleClickPending = false;
+  private interactionMode: InteractionMode = "none";
 
   // 依恋标记上下文
   private lastRejectionAt = -1e9;
@@ -99,6 +116,8 @@ export class AnimaEngine {
     this.lastEntityUpdate = now;
     this.lastInputAt = now;
     this.lastEventAt = now;
+    this.interactionMode = "none";
+    this.stillEmitted = false;
   }
 
   elapsed(now = performance.now()) {
@@ -115,6 +134,25 @@ export class AnimaEngine {
     this.lastInputAt = now;
     this.pauseEmitted = false;
     this.leaveEmitted = false;
+    this.stillEmitted = false;
+
+    // 拖拽判定：按下后位移超过阈值进入 drag 模式
+    if (this.pressing && !this.dragging) {
+      const moved = Math.hypot(x - this.pressStartPos.x, y - this.pressStartPos.y);
+      if (moved >= ACTION.DRAG_THRESHOLD) {
+        this.dragging = true;
+        this.holdEmitted = false;
+        this.interactionMode = "drag";
+        this.distAtLastEvent = Infinity; // 重置基线，避免拖拽结束误判 approach
+      }
+    }
+
+    // 拖拽期间只跟踪光标，不触发 approach/retreat/glide
+    if (this.dragging) {
+      this.lastSample = { x, y, t: now };
+      this.speed = 0;
+      return;
+    }
 
     // 瞬时速度（基于最近两次采样）
     const dt = Math.max(1, now - this.lastSample.t);
@@ -155,14 +193,71 @@ export class AnimaEngine {
     }
   }
 
-  handleClick(x: number, y: number, now = performance.now()) {
+  handleDown(x: number, y: number, now = performance.now()) {
     if (!this.started) return;
     this.cursorPos = { x, y };
     this.lastInputAt = now;
-    const dist = Math.hypot(x - this.entityPos.x, y - this.entityPos.y);
-    if (dist <= ACTION.REACH_RADIUS) {
-      this.emitEvent("reach", { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 }, now);
+    this.pauseEmitted = false;
+    this.leaveEmitted = false;
+    this.stillEmitted = false;
+    this.pressing = true;
+    this.dragging = false;
+    this.holdEmitted = false;
+    this.pressAt = now;
+    this.pressStartPos = { x, y };
+
+    // 双击判定：距上次按下 ≤ 0.35s 且位移小 → 唤醒脉冲
+    if (now - this.lastClickDownAt <= ACTION.DBLCLICK_INTERVAL) {
+      const moved = Math.hypot(x - this.lastClickDownPos.x, y - this.lastClickDownPos.y);
+      if (moved < ACTION.DRAG_THRESHOLD) {
+        this.doubleClickPending = true;
+        this.lastClickDownAt = -1e9; // 防止三击连环触发
+        this.interactionMode = "burst";
+        return;
+      }
     }
+    this.lastClickDownAt = now;
+    this.lastClickDownPos = { x, y };
+  }
+
+  handleUp(x: number, y: number, now = performance.now()) {
+    if (!this.started || !this.pressing) return;
+    this.cursorPos = { x, y };
+    this.lastInputAt = now;
+    this.pauseEmitted = false;
+    this.leaveEmitted = false;
+    this.stillEmitted = false;
+
+    const moved = Math.hypot(x - this.pressStartPos.x, y - this.pressStartPos.y);
+    const duration = now - this.pressAt;
+
+    if (this.doubleClickPending) {
+      this.doubleClickPending = false;
+      this.emitEvent(
+        "dblclick",
+        {
+          cursor_speed: this.speed,
+          distance_to_entity: Math.hypot(x - this.entityPos.x, y - this.entityPos.y),
+          pause_duration: 0,
+        },
+        now
+      );
+    } else if (!this.dragging && moved < ACTION.DRAG_THRESHOLD && duration < ACTION.HOLD_DURATION) {
+      // 普通单击 → 触碰（仅生命体附近判定为 reach）
+      const dist = Math.hypot(x - this.entityPos.x, y - this.entityPos.y);
+      if (dist <= ACTION.REACH_RADIUS) {
+        this.emitEvent(
+          "reach",
+          { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 },
+          now
+        );
+      }
+    }
+
+    this.pressing = false;
+    this.dragging = false;
+    this.holdEmitted = false;
+    this.interactionMode = "none";
   }
 
   handleWindowLeave(now = performance.now()) {
@@ -172,20 +267,85 @@ export class AnimaEngine {
     this.leaveEmitted = true;
   }
 
-  /** 主循环：内部状态衰减 + 生命体运动 + pause/leave 判定 */
+  /** 主循环：内部状态衰减 + 生命体运动 + 新互动判定 */
   update(now = performance.now()) {
     if (!this.started || this.finished) return;
+
+    // 按住期间视为持续输入：抑制 pause/leave 误触发
+    if (this.pressing) this.lastInputAt = now;
 
     const dtState = now - this.lastStateUpdate;
     if (dtState >= ACTION.STATE_UPDATE_INTERVAL) {
       this.lastStateUpdate = now;
       const dtSec = dtState / 1000;
-      for (const key of Object.keys(AXIS_CONFIG) as (keyof InternalState)[]) {
+      // 四轴衰减回归基线 + 随机噪声（文档 §2.2）；axis_manifest 单独更新
+      for (const key of (Object.keys(AXIS_CONFIG) as (keyof InternalState)[]).filter(
+        (k) => k !== "axis_manifest"
+      )) {
         const cfg = AXIS_CONFIG[key];
         const noise = gaussian() * NOISE_SIGMA;
-        // 衰减回归基线 + 随机噪声（文档 §2.2）
         this.state[key] = clamp01(
           this.state[key] - cfg.decay * (this.state[key] - cfg.baseline) * dtSec + noise
+        );
+      }
+
+      // axis_manifest：时间成长 + 成形期加速 + 无输入缓慢弥散（时间+交互双驱动）
+      const elapsed = this.elapsed(now);
+      let manifest = this.state.axis_manifest + ACTION.MANIFEST_GROWTH * dtSec;
+      if (elapsed < ACTION.MANIFEST_FORM_TIME) {
+        const k = 1 - elapsed / ACTION.MANIFEST_FORM_TIME; // 成形期递减的额外加速
+        manifest += 0.03 * k * dtSec;
+      }
+      if (now - this.lastInputAt > 3000) {
+        manifest -= ACTION.MANIFEST_DISSIPATE * dtSec;
+      }
+      this.state.axis_manifest = clamp01(Math.max(manifest, ACTION.MANIFEST_MIN));
+
+      // hold：按住不动 ≥ 1.2s → 呼吸同步（一次性）
+      if (
+        this.pressing &&
+        !this.dragging &&
+        !this.holdEmitted &&
+        now - this.pressAt >= ACTION.HOLD_DURATION
+      ) {
+        this.holdEmitted = true;
+        this.holdStartedAt = now;
+        this.interactionMode = "hold";
+        const dist = this.cursorPos
+          ? Math.hypot(this.cursorPos.x - this.entityPos.x, this.cursorPos.y - this.entityPos.y)
+          : Infinity;
+        this.emitEvent(
+          "hold",
+          { cursor_speed: 0, distance_to_entity: dist, pause_duration: now - this.pressAt },
+          now
+        );
+      }
+
+      // drag：拖拽中周期性地记录引导事件
+      if (this.dragging && now - this.dragLastEmitAt >= 800) {
+        this.dragLastEmitAt = now;
+        const dist = Math.hypot(this.cursorPos!.x - this.entityPos.x, this.cursorPos!.y - this.entityPos.y);
+        this.emitEvent(
+          "drag",
+          { cursor_speed: this.speed, distance_to_entity: dist, pause_duration: 0 },
+          now
+        );
+      }
+
+      // still：静止 ≥ 6s 且光标在画布内 → 静止孵化
+      if (
+        !this.stillEmitted &&
+        this.cursorPos &&
+        !this.pressing &&
+        now - this.lastInputAt >= ACTION.STILL_DURATION
+      ) {
+        this.stillEmitted = true;
+        this.interactionMode = "still";
+        const dist = Math.hypot(this.cursorPos.x - this.entityPos.x, this.cursorPos.y - this.entityPos.y);
+        this.emitEvent(
+          "still",
+          { cursor_speed: 0, distance_to_entity: dist, pause_duration: now - this.lastInputAt },
+          now
         );
       }
     }
@@ -314,6 +474,12 @@ export class AnimaEngine {
       entityPos: { ...this.entityPos },
       entityBehavior: this.entityBehavior,
       cursorPos: this.cursorPos ? { ...this.cursorPos } : null,
+      manifestProgress: this.state.axis_manifest,
+      interactionMode: this.interactionMode,
+      holdPhase:
+        this.pressing && this.holdEmitted
+          ? ((now - this.holdStartedAt) / ACTION.BREATH_PERIOD) % 1
+          : 0,
     };
   }
 

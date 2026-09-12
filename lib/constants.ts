@@ -17,10 +17,19 @@ export const ACTION = {
   GLIDE_SPEED: 420, // 快速经过速度阈值 V（px/s）
   GLIDE_MAX_DWELL: 200, // 停留 < 0.2s
   LEAVE_DURATION: 3000, // 停止操作 ≥ 3s → leave
+  DBLCLICK_INTERVAL: 350, // 两次按下间隔 < 0.35s 判为双击
+  DRAG_THRESHOLD: 8, // 按住后位移 ≥ 8px 判为拖拽
+  HOLD_DURATION: 1200, // 按住不动 ≥ 1.2s → hold（呼吸同步）
+  STILL_DURATION: 6000, // 无输入 ≥ 6s → still（静止孵化）
+  BREATH_PERIOD: 4000, // 呼吸同步周期（ms）
   MIN_EVENT_INTERVAL: 350, // 两次动作事件最小间隔（ms）
   SESSION_DURATION: 90, // 90 秒（s）
   STATE_UPDATE_INTERVAL: 100, // 内部状态更新间隔（ms）
   ENTITY_UPDATE_INTERVAL: 50, // 生命体运动更新间隔（ms）
+  MANIFEST_GROWTH: 0.004, // 显现轴自然成长速率（/s）
+  MANIFEST_FORM_TIME: 10, // 成形期：进入后 10s 内额外加速凝聚
+  MANIFEST_DISSIPATE: 0.002, // 无输入时弥散速率（/s）
+  MANIFEST_MIN: 0.1, // 显现下限（不完全消失）
 } as const;
 
 // ---- 内部状态核心轴配置（文档 §2.2） ----
@@ -32,6 +41,7 @@ export const AXIS_CONFIG: Record<
   axis_safety: { decay: 0.015, baseline: 0.4, initial: 0.3, label: "安全-防御" },
   axis_arousal: { decay: 0.03, baseline: 0.3, initial: 0.4, label: "情绪强度" },
   axis_memory: { decay: 0.005, baseline: 0.2, initial: 0.2, label: "记忆-期待" },
+  axis_manifest: { decay: 0, baseline: 0.15, initial: 0, label: "显现-弥散" },
 };
 
 /** 高斯噪声 σ（文档 §2.2/§7.3） */
@@ -48,24 +58,36 @@ export function incrementFor(
   switch (action) {
     case "approach":
       if (s.axis_safety < 0.4)
-        return { axis_approach: 0.15, axis_safety: -0.1, axis_arousal: 0.08, axis_memory: 0.05 };
+        return { axis_approach: 0.15, axis_safety: -0.1, axis_arousal: 0.08, axis_memory: 0.05, axis_manifest: 0.06 };
       if (s.axis_safety > 0.6)
-        return { axis_approach: 0.1, axis_safety: 0.05, axis_arousal: 0.04, axis_memory: 0.06 };
-      return { axis_approach: 0.12, axis_safety: 0.02, axis_arousal: 0.06, axis_memory: 0.05 };
+        return { axis_approach: 0.1, axis_safety: 0.05, axis_arousal: 0.04, axis_memory: 0.06, axis_manifest: 0.06 };
+      return { axis_approach: 0.12, axis_safety: 0.02, axis_arousal: 0.06, axis_memory: 0.05, axis_manifest: 0.06 };
     case "retreat":
-      return { axis_approach: -0.12, axis_safety: 0.08, axis_arousal: -0.03, axis_memory: 0.02 };
+      return { axis_approach: -0.12, axis_safety: 0.08, axis_arousal: -0.03, axis_memory: 0.02, axis_manifest: -0.04 };
     case "pause":
       return s.axis_arousal < 0.5
-        ? { axis_approach: 0.02, axis_safety: 0.06, axis_arousal: -0.05, axis_memory: 0.04 }
-        : { axis_approach: 0.02, axis_safety: 0.02, axis_arousal: -0.08, axis_memory: 0.04 };
+        ? { axis_approach: 0.02, axis_safety: 0.06, axis_arousal: -0.05, axis_memory: 0.04, axis_manifest: 0.03 }
+        : { axis_approach: 0.02, axis_safety: 0.02, axis_arousal: -0.08, axis_memory: 0.04, axis_manifest: 0.03 };
     case "reach":
       return s.axis_safety < 0.35
-        ? { axis_approach: 0.1, axis_safety: -0.15, axis_arousal: 0.2, axis_memory: 0.08 }
-        : { axis_approach: 0.06, axis_safety: 0.08, axis_arousal: 0.12, axis_memory: 0.1 };
+        ? { axis_approach: 0.1, axis_safety: -0.15, axis_arousal: 0.2, axis_memory: 0.08, axis_manifest: 0.12 }
+        : { axis_approach: 0.06, axis_safety: 0.08, axis_arousal: 0.12, axis_memory: 0.1, axis_manifest: 0.12 };
     case "glide":
-      return { axis_approach: -0.04, axis_safety: -0.03, axis_arousal: 0.05, axis_memory: -0.01 };
+      return { axis_approach: -0.04, axis_safety: -0.03, axis_arousal: 0.05, axis_memory: -0.01, axis_manifest: -0.02 };
     case "leave":
-      return { axis_approach: -0.1, axis_safety: 0.03, axis_arousal: -0.08, axis_memory: -0.05 };
+      return { axis_approach: -0.1, axis_safety: 0.03, axis_arousal: -0.08, axis_memory: -0.05, axis_manifest: -0.08 };
+    case "dblclick":
+      return s.axis_safety < 0.4
+        ? { axis_approach: 0.12, axis_safety: -0.1, axis_arousal: 0.2, axis_memory: 0.06, axis_manifest: 0.15 }
+        : { axis_approach: 0.08, axis_safety: 0.04, axis_arousal: 0.16, axis_memory: 0.06, axis_manifest: 0.15 };
+    case "hold":
+      return { axis_approach: 0.04, axis_safety: 0.05, axis_arousal: -0.04, axis_memory: 0.07, axis_manifest: 0.08 };
+    case "drag":
+      return s.axis_safety < 0.4
+        ? { axis_approach: 0.06, axis_safety: -0.06, axis_arousal: 0.08, axis_memory: 0.04, axis_manifest: 0.05 }
+        : { axis_approach: 0.1, axis_safety: 0.04, axis_arousal: 0.04, axis_memory: 0.05, axis_manifest: 0.05 };
+    case "still":
+      return { axis_approach: 0.02, axis_safety: 0.04, axis_arousal: -0.06, axis_memory: 0.06, axis_manifest: 0.04 };
   }
 }
 
@@ -106,6 +128,8 @@ export const KEYWORD_LIB: {
   { dim: "repair_tendency", level: "high", words: ["坚持", "修复", "不放弃"] },
   { dim: "boundary", level: "high", words: ["距离", "自主", "边界感"] },
   { dim: "boundary", level: "low", words: ["摇摆", "矛盾", "靠近又退"] },
+  { dim: "manifest_presence", level: "high", words: ["被看见而存在", "凝聚", "实感"] },
+  { dim: "manifest_presence", level: "low", words: ["若隐若现", "弥散", "待唤醒"] },
   { dim: "overall", level: "high", words: ["丰富", "多变", "鲜活", "有生命力"] },
   { dim: "overall", level: "low", words: ["疏离", "模糊", "未唤醒", "克制"] },
 ];
@@ -338,6 +362,23 @@ export const TEMPLATES: Template[] = [
     ],
     text: "当它第一次退开时，你就感受到了某种拒绝。你没有继续尝试，而是选择了退到更远的地方。你保护了自己，但也错过了后面可能发生的故事。",
   },
+  {
+    id: 21,
+    name: "被看见的实感",
+    conditions: [
+      cond("manifest_presence", "high"),
+      cond("approach_tendency", "high"),
+    ],
+    text: "你几乎是它的存在条件。因为你的注视与靠近，它才从弥散中聚成此刻的形状。它因被看见而存在——而你也在这九十秒里，第一次看清了自己的靠近能照亮什么。",
+  },
+  {
+    id: 22,
+    name: "若隐若现",
+    conditions: [
+      cond("manifest_presence", "low"),
+    ],
+    text: "它始终没有真正成形，像一团未完成的雾。你短暂地照亮过它，又让它落回弥散。这未必是疏远——只是你们之间的存在，还没有被足够多的注视与停留，稳稳地接住。",
+  },
 ];
 
 // ---- 动作/行为显示名 ----
@@ -348,6 +389,10 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   reach: "接触",
   glide: "经过",
   leave: "离开",
+  dblclick: "唤醒",
+  hold: "呼吸",
+  drag: "引导",
+  still: "守候",
 };
 
 export const BEHAVIOR_LABELS: Record<EntityBehavior, string> = {
@@ -373,6 +418,7 @@ export const SEVEN_DIM_LABELS: Record<SevenDimKey, string> = {
   uncertainty_tolerance: "不确定耐受",
   boundary: "边界",
   repair_tendency: "修复倾向",
+  manifest_presence: "被看见/存在感",
 };
 
 // ---- 问卷题目（文档 §4.3） ----

@@ -1,4 +1,4 @@
-// ============ 评估计算：五维指标 + 七维分数 + 问卷融合（文档 §4.1/§4.2/§4.3） ============
+// ============ 评估计算：五维指标 + 八维分数 + 问卷融合（文档 §4.1/§4.2/§4.3） ============
 import type {
   ActionType,
   EntityBehavior,
@@ -33,12 +33,14 @@ export interface DerivedMetrics {
   suppressionEvents: number;
   coordinationRuns: number;
   latencyTrend: LatencyTrend;
+  avgManifest: number; // 平均显现度（0-1）
 }
 
 export function deriveMetrics(events: EventLogEntry[], durationSec: number): DerivedMetrics {
   const total = events.length;
   const count: Record<ActionType, number> = {
     approach: 0, retreat: 0, pause: 0, reach: 0, glide: 0, leave: 0,
+    dblclick: 0, hold: 0, drag: 0, still: 0,
   };
   const behaviors: Record<EntityBehavior, number> = {
     retreat: 0, dodge: 0, approach: 0, ignore: 0, hesitate: 0,
@@ -59,6 +61,7 @@ export function deriveMetrics(events: EventLogEntry[], durationSec: number): Der
   let coordinationRun = 0;
   let coordinationRuns = 0;
   const latencies: number[] = [];
+  let manifestSum = 0;
 
   const lastRetreatBehaviorAt = new Map<number, number>(); // event idx → 时间
   const lastEntityApproachAt: number[] = [];
@@ -69,6 +72,7 @@ export function deriveMetrics(events: EventLogEntry[], durationSec: number): Der
     count[a] += 1;
     behaviors[e.expressed_behavior] += 1;
     latencies.push(e.response_latency_ms);
+    manifestSum += e.internal_state_after.axis_manifest;
 
     if (a === "approach") {
       if (firstApproachTime < 0) firstApproachTime = e.timestamp;
@@ -185,6 +189,7 @@ export function deriveMetrics(events: EventLogEntry[], durationSec: number): Der
     suppressionEvents,
     coordinationRuns,
     latencyTrend,
+    avgManifest: total > 0 ? manifestSum / total : 0.5,
   };
 }
 
@@ -248,7 +253,7 @@ export function connectionFromIndicators(indicators: FiveIndicators): Connection
   return { score, label };
 }
 
-// ---- 七维关系画像（文档 §4.2） ----
+// ---- 八维关系画像（文档 §4.2） ----
 export function computeSevenScores(events: EventLogEntry[], durationSec: number): SevenScores {
   const m = deriveMetrics(events, durationSec);
   const total = Math.max(1, m.total);
@@ -292,6 +297,9 @@ export function computeSevenScores(events: EventLogEntry[], durationSec: number)
     repair_tendency = clamp((m.returnsAfterWithdrawal / m.userRetreatCount) * 100);
   }
 
+  // 被看见/存在感：交互全程平均显现度映射 0-100
+  const manifest_presence = clamp(m.avgManifest * 100);
+
   return {
     approach_tendency,
     confirmation_need,
@@ -300,6 +308,7 @@ export function computeSevenScores(events: EventLogEntry[], durationSec: number)
     uncertainty_tolerance,
     boundary,
     repair_tendency,
+    manifest_presence,
   };
 }
 

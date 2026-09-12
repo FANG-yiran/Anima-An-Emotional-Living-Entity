@@ -14,7 +14,13 @@ interface Props {
   events: EventLogEntry[];
 }
 
-const AXIS_ORDER = ["axis_approach", "axis_safety", "axis_arousal", "axis_memory"] as const;
+const AXIS_ORDER = [
+  "axis_approach",
+  "axis_safety",
+  "axis_arousal",
+  "axis_memory",
+  "axis_manifest",
+] as const;
 
 function barColor(axis: string): string {
   switch (axis) {
@@ -22,6 +28,7 @@ function barColor(axis: string): string {
     case "axis_safety": return "linear-gradient(90deg,#4ade80,#6ee7ff)";
     case "axis_arousal": return "linear-gradient(90deg,#fbbf24,#fb7185)";
     case "axis_memory": return "linear-gradient(90deg,#a78bfa,#f0abfc)";
+    case "axis_manifest": return "linear-gradient(90deg,#e2e8f0,#6ee7ff)";
     default: return "linear-gradient(90deg,#6ee7ff,#a78bfa)";
   }
 }

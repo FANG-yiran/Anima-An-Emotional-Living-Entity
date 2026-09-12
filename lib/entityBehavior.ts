@@ -36,6 +36,22 @@ export function decideBehavior(
       return r < 0.65 ? "ignore" : "dodge";
     case "leave":
       return r < 0.6 ? "ignore" : "retreat";
+    case "dblclick":
+      // 被唤醒：安全时回应靠近，防御时闪躲
+      if (state.axis_safety < 0.35) return "dodge";
+      return r < 0.75 ? "approach" : "hesitate";
+    case "hold":
+      // 呼吸同频：趋向稳定靠近
+      if (state.axis_safety < 0.3) return "hesitate";
+      return r < 0.7 ? "approach" : "hesitate";
+    case "drag":
+      // 被引导：跟随靠近，防御过强则侧移
+      if (state.axis_safety < 0.3) return "dodge";
+      return r < 0.7 ? "approach" : "hesitate";
+    case "still":
+      // 静止守候：它缓缓靠近
+      if (state.axis_arousal > 0.7) return "hesitate";
+      return r < 0.6 ? "approach" : "hesitate";
   }
 }
 
