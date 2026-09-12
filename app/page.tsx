@@ -32,7 +32,6 @@ export default function Home() {
   const engineRef = useRef<AnimaEngine | null>(null);
   const sessionRef = useRef<{ events: EventLogEntry[]; durationSec: number } | null>(null);
   const [snapshot, setSnapshot] = useState<EngineSnapshot | null>(null);
-  const [events, setEvents] = useState<EventLogEntry[]>([]);
   const [report, setReport] = useState<ReportData | null>(null);
 
   const handleEnd = useCallback(() => {
@@ -45,15 +44,13 @@ export default function Home() {
 
   const startSession = useCallback(() => {
     const engine = new AnimaEngine({
-      onEvent: (entry, snap) => {
-        setEvents((prev) => [...prev.slice(-59), entry]);
+      onEvent: (_entry, snap) => {
         setSnapshot(snap);
       },
       onComplete: handleEnd,
     });
     engineRef.current = engine;
     setSnapshot(null);
-    setEvents([]);
     setStage("interacting");
   }, [handleEnd]);
 
@@ -130,7 +127,6 @@ export default function Home() {
     sessionRef.current = null;
     setReport(null);
     setSnapshot(null);
-    setEvents([]);
     setStage("start");
   }, []);
 
@@ -145,9 +141,8 @@ export default function Home() {
               engine={engineRef.current!}
               snapshot={snapshot}
               onSnapshot={handleSnapshot}
-              onEnd={handleEnd}
             />
-            <MonitoringPanel snapshot={snapshot} events={events} />
+            <MonitoringPanel snapshot={snapshot} />
           </>
         )}
       </main>

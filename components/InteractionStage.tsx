@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { PHASE_LABELS } from "@/lib/constants";
 import type { AnimaEngine } from "@/lib/engine";
 import type { EngineSnapshot } from "@/lib/types";
 import {
@@ -15,11 +14,10 @@ interface Props {
   engine: AnimaEngine;
   snapshot: EngineSnapshot | null;
   onSnapshot: (snap: EngineSnapshot) => void;
-  onEnd: () => void;
 }
 
 /** 交互舞台：Canvas 渲染生命体 + 鼠标事件捕获 */
-export default function InteractionStage({ engine, snapshot, onSnapshot, onEnd }: Props) {
+export default function InteractionStage({ engine, snapshot, onSnapshot }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(0);
@@ -124,21 +122,13 @@ export default function InteractionStage({ engine, snapshot, onSnapshot, onEnd }
   const remaining = snapshot?.remaining ?? 90;
   const mm = Math.floor(remaining / 60);
   const ss = Math.floor(remaining % 60);
-  const phase = snapshot?.phase ?? "exploration";
-
   return (
     <div className="stage-wrap" ref={wrapRef}>
       <canvas ref={canvasRef} className="stage-canvas" />
-      <div className="stage-hud panel">
-        <div className="hud-left">
-          <span className="hud-phase">{PHASE_LABELS[phase]}</span>
-          <span className="hud-time">
-            {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
-          </span>
-        </div>
-        <button className="btn ghost small" onClick={onEnd}>
-          提前结束 · 生成报告
-        </button>
+      <div className="stage-hud" aria-label="剩余时间">
+        <span className="hud-time">
+          {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
+        </span>
       </div>
     </div>
   );
