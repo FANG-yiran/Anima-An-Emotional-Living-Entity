@@ -15,7 +15,7 @@ export default function StartScreen({ onStart }: Props) {
         你将与它进行 <b>90 秒</b> 自由交互。移动鼠标靠近、远离、停住，或点击触碰它——
         它会有自己的回应，但不总是如你所愿。
         <br />
-        结束后，系统将基于全程行为，为你生成一面「关系之镜」：情感联结评分、关键词与八维关系画像。
+        结束后，你会得到一句诗，以及这九十秒里双方动作的客观记录。
       </p>
       <div className="start-actions">
         <button className="btn" onClick={onStart}>

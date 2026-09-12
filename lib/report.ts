@@ -1,15 +1,15 @@
 // ============ 输出生成：关键词 + 模板匹配 + 情绪化推测 + 名言 + 报告组装（文档 §5.1/§5.2/§5.3） ============
 import {
+  ACTION_LABELS,
+  BEHAVIOR_LABELS,
   ETHICS_NOTE,
-  INFERENCE_TEXTS,
   KEYWORD_LIB,
   QUOTE_LIB,
   SCORE_LEVEL,
   TEMPLATES,
 } from "./constants";
-import type { CondOp, Quote, Template } from "./constants";
+import type { CondOp, Quote, QuoteMood, Template } from "./constants";
 import type {
-  ActionType,
   EventLogEntry,
   ReportData,
   SevenDimKey,
@@ -90,34 +90,94 @@ export function selectKeywords(scores: SevenScores, connectionScore: number): st
   return picked.slice(0, 5);
 }
 
-/** 规则引擎回退：从事件时间线提炼 3-5 条情绪化推测 */
-export function buildFallbackInferences(events: EventLogEntry[]): string[] {
-  const picked = new Map<ActionType, EventLogEntry>();
-  for (const e of events) {
-    if (picked.has(e.user_action)) continue;
-    // 被无视的动作不构成"可感的瞬间"，跳过（still 守候除外）
-    if (e.expressed_behavior === "ignore" && e.user_action !== "still") continue;
-    picked.set(e.user_action, e);
+/** 客观动作记录：双方动作的简短并置，不做情绪解读 */
+export function formatActionLog(events: EventLogEntry[]): string[] {
+  if (events.length === 0) return [];
+  // 采样最多 8 条，按时间均匀取样，保留首尾
+  const max = 8;
+  let picked: EventLogEntry[] = events;
+  if (events.length > max) {
+    picked = [];
+    for (let i = 0; i < max; i++) {
+      picked.push(events[Math.round((i * (events.length - 1)) / (max - 1))]);
+    }
+    picked = [...new Set(picked)];
   }
-  const lines = [...picked.values()]
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .slice(0, 5)
-    .map((e) => `第${Math.round(e.timestamp)}秒，${INFERENCE_TEXTS[e.user_action]}`);
-  if (lines.length === 0) {
-    lines.push("这九十秒里，Animo 只是安静地弥散着，等待被看见。");
-  }
-  return lines;
+  return picked.map((e) => {
+    const t = Math.max(0, Math.round(e.timestamp));
+    const mm = String(Math.floor(t / 60)).padStart(2, "0");
+    const ss = String(t % 60).padStart(2, "0");
+    return `${mm}:${ss}　你${ACTION_LABELS[e.user_action]}　它${BEHAVIOR_LABELS[e.expressed_behavior]}`;
+  });
 }
 
-/** 规则引擎回退：按画像显著维度挑选一句哲理性名言 */
-export function pickFallbackQuote(scores: SevenScores): Quote {
-  if (scores.manifest_presence < 35) return QUOTE_LIB[7]; // 孤独与看见
-  if (scores.approach_tendency < 35 && scores.boundary > 60) return QUOTE_LIB[4]; // 里尔克
-  if (scores.rejection_sensitivity > 60) return QUOTE_LIB[3]; // 尼采
-  if (scores.approach_tendency > 60 && scores.intimacy_tolerance > 60) return QUOTE_LIB[1]; // 黑塞
-  if (scores.uncertainty_tolerance < 35) return QUOTE_LIB[5]; // 被看见的时刻
-  if (scores.confirmation_need > 60) return QUOTE_LIB[8]; // 靠近与离开
-  return QUOTE_LIB[0]; // 王尔德
+/**
+ * 诗句匹配：按八维画像给情境标签打分，取最高分；
+ * 同分时用 session 级噪音微扰，避免每次落同一句。
+ */
+export function pickFallbackQuote(
+  scores: SevenScores,
+  rand: () => number = Math.random
+): Quote {
+  const high = (v: number) => v >= SCORE_LEVEL.HIGH;
+  const low = (v: number) => v <= SCORE_LEVEL.LOW;
+
+  // 画像 → 情境权重
+  const weights: Partial<Record<QuoteMood, number>> = {};
+
+  if (low(scores.manifest_presence)) weights.unseen = 2.2;
+  else if (high(scores.manifest_presence)) weights.presence = 1.6;
+
+  if (high(scores.approach_tendency)) weights.reach = 2.0;
+  if (low(scores.approach_tendency)) weights.retreat = 1.8;
+
+  if (high(scores.confirmation_need)) {
+    weights.chase = 2.2;
+    weights.wildfire = 1.2;
+  } else if (low(scores.confirmation_need)) {
+    weights.silence = 1.6;
+  }
+
+  if (high(scores.rejection_sensitivity)) weights.retreat = (weights.retreat ?? 0) + 1.4;
+
+  if (high(scores.intimacy_tolerance)) weights.intimacy = 1.8;
+  if (low(scores.intimacy_tolerance)) weights.distance = (weights.distance ?? 0) + 1.2;
+
+  if (high(scores.uncertainty_tolerance) && high(scores.approach_tendency)) {
+    weights.gaze = 1.4;
+    weights.intimacy = (weights.intimacy ?? 0) + 0.8;
+  }
+  if (low(scores.uncertainty_tolerance)) weights.chase = (weights.chase ?? 0) + 1.0;
+
+  if (high(scores.boundary)) weights.distance = (weights.distance ?? 0) + 1.5;
+  if (low(scores.boundary) && high(scores.approach_tendency)) weights.ambivalence = 2.0;
+
+  if (high(scores.repair_tendency)) weights.repair = 2.0;
+  if (low(scores.repair_tendency) && high(scores.confirmation_need)) {
+    weights.wildfire = (weights.wildfire ?? 0) + 1.0;
+  }
+
+  // 兜底
+  if (Object.keys(weights).length === 0) weights.default = 1;
+
+  let bestScore = -Infinity;
+  let pool: Quote[] = [];
+  for (const q of QUOTE_LIB) {
+    let s = 0;
+    for (const mood of q.moods) s += weights[mood] ?? 0;
+    // 略偏短句：报告页视觉更干净
+    s -= Math.max(0, q.text.length - 28) * 0.02;
+    // 轻微随机，避免千篇一律
+    s += rand() * 0.35;
+    if (s > bestScore + 1e-6) {
+      bestScore = s;
+      pool = [q];
+    } else if (Math.abs(s - bestScore) < 1e-6) {
+      pool.push(q);
+    }
+  }
+  if (pool.length === 0) return QUOTE_LIB[0];
+  return pool[Math.floor(rand() * pool.length)];
 }
 
 /** 组装最终报告（规则引擎回退路径） */
@@ -127,13 +187,12 @@ export function buildRuleReport(
   scores: SevenScores,
   conflictNote?: string
 ): ReportData {
-  const tpl = matchTemplate(scores);
   return {
     keywords: selectKeywords(scores, connectionScore),
-    inferences: buildFallbackInferences(events),
+    inferences: formatActionLog(events),
     quote: pickFallbackQuote(scores),
     scores,
-    description: tpl.text,
+    description: matchTemplate(scores).text,
     conflict_note: conflictNote,
     llm_enhanced: false,
     ethics_note: ETHICS_NOTE,

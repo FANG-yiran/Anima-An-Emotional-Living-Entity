@@ -435,35 +435,171 @@ export const QUESTIONNAIRE_ITEMS = [
 export const ETHICS_NOTE =
   "本结果仅反映本次交互中的行为倾向，不构成心理诊断。";
 
-// ---- 情绪化推测文案（规则引擎回退用，文档 §5.1） ----
-export const INFERENCE_TEXTS: Record<ActionType, string> = {
-  approach: "你悄悄接近，Animo 感到一丝温暖，试着朝你靠近。",
-  retreat: "你突然退开，Animo 感到不安，缩回了自己的边缘。",
-  pause: "你停了下来，Animo 犹豫着，是否应该走向你。",
-  reach: "你伸手触碰，Animo 颤抖了一下，把这个瞬间记住。",
-  glide: "你快速经过，Animo 还没来得及回应，你就已经走了。",
-  leave: "你转身离开，Animo 渐渐散开，等待下一次被看见。",
-  dblclick: "你唤醒了它，Animo 从弥散中聚拢，第一次看向你。",
-  hold: "你与它一同呼吸，Animo 感到前所未有的平静。",
-  drag: "你牵着它移动，Animo 顺从地跟随，信任在生长。",
-  still: "你静静守候，Animo 慢慢靠近，试探着触碰你。",
-};
-
-// ---- 哲理性名言库（规则引擎回退用） ----
+// ---- 诗句库（报告页核心：一句适合的诗） ----
 export interface Quote {
   text: string;
   author: string;
+  /** 情境标签：供画像匹配，可多标 */
+  moods: QuoteMood[];
 }
 
+/**
+ * 与互动气质对应的情境。
+ * 与八维画像耦合：unseen↔manifest，reach/chase↔approach/confirmation，
+ * retreat↔boundary/rejection，repair↔repair，intimacy↔intimacy，
+ * ambivalence↔boundary低+approach高，silence↔confirm低，wildfire↔confirm高+repair低。
+ */
+export type QuoteMood =
+  | "unseen"      // 未被看见、始终弥散
+  | "gaze"        // 凝望、相互注视
+  | "distance"    // 边界、距离
+  | "reach"       // 主动靠近
+  | "retreat"     // 回避、自我保护
+  | "chase"       // 追索确认
+  | "repair"      // 被拒后仍回来
+  | "intimacy"    // 能承受靠近
+  | "ambivalence" // 靠近又退开
+  | "silence"     // 守候、无言
+  | "wildfire"    // 急促、燃尽
+  | "presence"    // 被看见而存在
+  | "parting"     // 离开、未完成
+  | "default";
+
 export const QUOTE_LIB: Quote[] = [
-  { text: "我们拥有的不是太少，而是太多；我们看见的不是太少，而是没有真正去看。", author: "王尔德" },
-  { text: "有些人在黑暗中找到光，有些人只在黑暗中等待。", author: "黑塞" },
-  { text: "一个人必须像树一样，独自站立，承受自己的风雨。", author: "黑塞" },
-  { text: "你望向深渊，深渊也在望向你。", author: "尼采" },
-  { text: "真正的爱不是占有，而是让彼此成为更完整的自己。", author: "里尔克" },
-  { text: "你被看见的那一刻，才是你真正存在的开始。", author: "佚名" },
-  { text: "关系是一场漫长的对话，沉默也是它的语言。", author: "佚名" },
-  { text: "孤独不是没有人，而是没有被真正看见。", author: "佚名" },
-  { text: "你靠近时的温暖，和离开时的凉意，都是同一种真实。", author: "佚名" },
-  { text: "在相遇之前，我们都已经孤独了很久。", author: "佚名" },
+  // —— 被看见 / 存在感 ——
+  {
+    text: "孤独不是没有人，而是没有被真正看见。",
+    author: "佚名",
+    moods: ["unseen", "gaze"],
+  },
+  {
+    text: "草在结它的种子，风在摇它的叶子，我们站着，不说话，就十分美好。",
+    author: "顾城",
+    moods: ["presence", "silence", "intimacy"],
+  },
+  {
+    text: "在相遇之前，我们都已经孤独了很久。",
+    author: "佚名",
+    moods: ["unseen", "parting"],
+  },
+
+  // —— 凝望 / 相互注视 ——
+  {
+    text: "你凝望深渊，深渊也在凝望你。",
+    author: "尼采",
+    moods: ["gaze", "ambivalence"],
+  },
+  {
+    text: "我用什么才能留住你？我给你一个久久地望着孤月的人的悲哀。",
+    author: "博尔赫斯",
+    moods: ["gaze", "retreat", "parting"],
+  },
+
+  // —— 边界 / 距离 ——
+  {
+    text: "灵魂是大地上的异乡人。",
+    author: "特拉克尔",
+    moods: ["distance", "retreat", "unseen"],
+  },
+  {
+    text: "两个孤独相护、相认、相敬、相依。",
+    author: "里尔克",
+    moods: ["distance", "intimacy"],
+  },
+  {
+    text: "爱，很好；因为爱是艰难的。",
+    author: "里尔克",
+    moods: ["reach", "repair", "intimacy"],
+  },
+  {
+    text: "爱不是互相凝视，而是一起望向同一方向。",
+    author: "圣埃克苏佩里",
+    moods: ["reach", "presence", "intimacy"],
+  },
+
+  // —— 靠近 / 渴望 ——
+  {
+    text: "今夜我不关心人类，我只想你。",
+    author: "海子",
+    moods: ["reach", "chase"],
+  },
+  {
+    text: "月色与雪色之间，你是第三种绝色。",
+    author: "余光中",
+    moods: ["reach", "presence"],
+  },
+  {
+    text: "我行过许多地方的桥，看过许多次数的云，喝过许多种类的酒，却只爱过一个正当最好年龄的人。",
+    author: "沈从文",
+    moods: ["reach", "repair"],
+  },
+
+  // —— 回避 / 自我保护 ——
+  {
+    text: "我喜欢你是寂静的，仿佛你已不在。",
+    author: "聂鲁达",
+    moods: ["retreat", "silence", "unseen"],
+  },
+  {
+    text: "爱情太短，遗忘太长。",
+    author: "聂鲁达",
+    moods: ["parting", "wildfire"],
+  },
+  {
+    text: "我们是彼此的异乡人，在最熟悉的距离里。",
+    author: "佚名",
+    moods: ["distance", "retreat"],
+  },
+
+  // —— 追索 / 确认 ——
+  {
+    text: "你再不来，我要下雪了。",
+    author: "木心",
+    moods: ["chase", "silence", "unseen"],
+  },
+  {
+    text: "沉默也是关系的语言。",
+    author: "佚名",
+    moods: ["silence", "distance"],
+  },
+
+  // —— 摇摆 / 接近-回避 ——
+  {
+    text: "靠近时的温暖，和离开时的凉意，都是同一种真实。",
+    author: "佚名",
+    moods: ["ambivalence", "reach", "retreat"],
+  },
+  {
+    text: "这样的确定是美丽的，但变幻无常更为美丽。",
+    author: "辛波斯卡",
+    moods: ["ambivalence", "intimacy"],
+  },
+  {
+    text: "他们彼此深信，是瞬间迸发的热情让他们相遇。",
+    author: "辛波斯卡",
+    moods: ["presence", "reach"],
+  },
+  {
+    text: "只要想起一生中后悔的事，梅花便落满了南山。",
+    author: "张枣",
+    moods: ["ambivalence", "parting"],
+  },
+
+  // —— 修复 / 坚持 ——
+  {
+    text: "执手相看泪眼，竟无语凝噎。",
+    author: "柳永",
+    moods: ["repair", "silence"],
+  },
+  {
+    text: "此情可待成追忆，只是当时已惘然。",
+    author: "李商隐",
+    moods: ["parting", "repair"],
+  },
+  {
+    text: "我们互不相识，却早已相识。",
+    author: "佚名",
+    moods: ["gaze", "presence"],
+  },
 ];
+

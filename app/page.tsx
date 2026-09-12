@@ -95,21 +95,13 @@ export default function Home() {
         });
         const data = await res.json();
         const q = data.quote as { text?: string; author?: string } | undefined;
-        if (
-          !data.fallback &&
-          Array.isArray(data.keywords) &&
-          data.keywords.length &&
-          data.description &&
-          Array.isArray(data.inferences) &&
-          data.inferences.length &&
-          q?.text
-        ) {
+        if (!data.fallback && q?.text) {
           finalReport = {
             ...ruleReport,
-            keywords: data.keywords.slice(0, 5),
-            inferences: data.inferences.slice(0, 5),
+            inferences: Array.isArray(data.inferences) && data.inferences.length
+              ? data.inferences.slice(0, 8)
+              : ruleReport.inferences,
             quote: { text: q.text, author: q.author ?? "佚名" },
-            description: data.description,
             llm_enhanced: true,
           };
         }
