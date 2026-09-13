@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReportData } from "@/lib/types";
 
 interface Props {
@@ -8,98 +8,202 @@ interface Props {
   onRestart: () => void;
 }
 
-type View = "poem" | "analysis";
+type Phase = "log" | "reading" | "poem" | "ending";
+const PHASE_MS = 8000;
+const VANISH_MS = 1200;
 
 /**
- * 报告：默认只呈现一句诗。
- * 点「互动记录」进入分析页（动作记录 + 依恋模式解读）；「再次体验」同样收在分析页。
+ * 报告卡片：可拖拽旋转的实体卡。
+ * 序演出：互动记录 8s → 关系解读 8s → 诗句 8s → 卡片散去，接入结尾视频。
  */
 export default function ReportView({ report, onRestart }: Props) {
-  const [view, setView] = useState<View>("poem");
+  const [phase, setPhase] = useState<Phase>("log");
+  const [fade, setFade] = useState(true);
+  const [vanishing, setVanishing] = useState(false);
+  const [rot, setRot] = useState({ x: -10, y: 16 });
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const lastPt = useRef({ x: 0, y: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
+  const endVideoRef = useRef<HTMLVideoElement>(null);
 
-  if (view === "analysis") {
-    return (
-      <div className="report-scroll">
-        <article className="report poem-card analysis-card">
-          <header className="poem-head">
-            <button
-              type="button"
-              className="poem-back"
-              onClick={() => setView("poem")}
-              aria-label="返回诗句"
-            >
-              ← 诗
-            </button>
-          </header>
+  // 序演出推进
+  useEffect(() => {
+    if (phase === "poem") {
+      setFade(true);
+      const t = window.setTimeout(() => {
+        setVanishing(true);
+        window.setTimeout(() => setPhase("ending"), VANISH_MS - 80);
+      }, PHASE_MS);
+      return () => window.clearTimeout(t);
+    }
+    if (phase === "log" || phase === "reading") {
+      setFade(true);
+      const t1 = window.setTimeout(() => setFade(false), PHASE_MS - 500);
+      const t2 = window.setTimeout(() => {
+        setPhase(phase === "log" ? "reading" : "poem");
+      }, PHASE_MS);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+      };
+    }
+    return;
+  }, [phase]);
 
-          {report.inferences.length > 0 && (
-            <section className="poem-log">
-              <div className="poem-log-label">互动记录</div>
-              <ol className="poem-log-list">
-                {report.inferences.map((line, i) => (
-                  <li key={i} className="poem-log-item">
-                    {line}
-                  </li>
-                ))}
-              </ol>
-            </section>
-          )}
+  // 结尾视频：开始散卡时就预热播放，叠化更顺
+  useEffect(() => {
+    if (phase !== "ending" && !vanishing) return;
+    endVideoRef.current?.play().catch(() => {});
+  }, [phase, vanishing]);
 
-          {report.keywords.length > 0 && (
-            <section className="analysis-block">
-              <div className="poem-log-label">关键词</div>
-              <div className="analysis-chips">
-                {report.keywords.map((k) => (
-                  <span key={k} className="analysis-chip">
-                    {k}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
+  // 结尾态保持可见
+  useEffect(() => {
+    if (phase === "ending") setFade(true);
+  }, [phase]);
 
-          {report.description && (
-            <section className="analysis-block">
-              <div className="poem-log-label">关系解读</div>
-              <p className="analysis-desc">{report.description}</p>
-              {report.conflict_note && (
-                <p className="analysis-conflict">{report.conflict_note}</p>
-              )}
-            </section>
-          )}
+  // 初始：若无互动记录则直接读解读
+  useEffect(() => {
+    if (report.inferences.length === 0) {
+      setPhase((p) => (p === "log" ? "reading" : p));
+    }
+  }, [report.inferences.length]);
 
-          <footer className="poem-foot">
-            <button className="btn ghost poem-restart" onClick={onRestart}>
-              再次体验
-            </button>
-          </footer>
-        </article>
-      </div>
-    );
-  }
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (phase === "ending" || vanishing) return;
+    draggingRef.current = true;
+    setDragging(true);
+    lastPt.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, [phase, vanishing]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    const dx = e.clientX - lastPt.current.x;
+    const dy = e.clientY - lastPt.current.y;
+    lastPt.current = { x: e.clientX, y: e.clientY };
+    setRot((r) => ({
+      x: Math.max(-28, Math.min(28, r.x - dy * 0.22)),
+      y: Math.max(-42, Math.min(42, r.y + dx * 0.25)),
+    }));
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    draggingRef.current = false;
+    setDragging(false);
+  }, []);
+
+  const [glare, setGlare] = useState({ x: 50, y: 40 });
+  const onCardMove = useCallback((e: React.MouseEvent) => {
+    const el = cardRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setGlare({
+      x: ((e.clientX - r.left) / r.width) * 100,
+      y: ((e.clientY - r.top) / r.height) * 100,
+    });
+  }, []);
+
+  const showCard = phase !== "ending";
 
   return (
-    <div className="report-scroll">
-      <article className="report poem-card">
-        <header className="poem-head">
-          <span className="poem-eyebrow">观察</span>
-        </header>
+    <div className={`report-stage ${phase === "ending" || vanishing ? "is-ending" : ""}`}>
+      {(phase === "ending" || vanishing) && (
+        <video
+          ref={endVideoRef}
+          className={`end-video ${phase === "ending" ? "is-on" : "is-pre"}`}
+          src="/end.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+        />
+      )}
 
-        <section className="poem-hero">
-          <blockquote className="poem-text">{report.quote.text}</blockquote>
-          <cite className="poem-author">—— {report.quote.author}</cite>
-        </section>
-
-        <footer className="poem-foot">
-          <button
-            type="button"
-            className="poem-link"
-            onClick={() => setView("analysis")}
+      {showCard && (
+        <div className={`report-card-scene ${vanishing ? "is-vanish" : ""}`}>
+          <div
+            ref={cardRef}
+            className={`report-card3d ${dragging ? "is-dragging" : ""}`}
+            style={{
+              transform: `rotateX(${rot.x}deg) rotateY(${rot.y}deg)`,
+            }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onMouseMove={onCardMove}
           >
-            互动记录
+            <div className="card-face">
+              <div className="card-edge" aria-hidden="true" />
+              <div
+                className="card-glare"
+                style={{
+                  background: `radial-gradient(circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,0.22), transparent 42%)`,
+                }}
+                aria-hidden="true"
+              />
+              <div className="card-sheen" aria-hidden="true" />
+              <div className="card-stars" aria-hidden="true" />
+
+              <div className={`card-body ${fade && !vanishing ? "is-on" : "is-off"}`}>
+                {phase === "log" && (
+                  <section className="card-panel">
+                    <div className="card-label">互动记录</div>
+                    {report.inferences.length > 0 ? (
+                      <ol className="card-log">
+                        {report.inferences.slice(0, 6).map((line, i) => (
+                          <li key={i}>{line}</li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="card-empty">这九十秒，几乎没有留下痕迹。</p>
+                    )}
+                  </section>
+                )}
+
+                {phase === "reading" && (
+                  <section className="card-panel">
+                    <div className="card-label">关系解读</div>
+                    {report.keywords.length > 0 && (
+                      <div className="card-chips">
+                        {report.keywords.map((k) => (
+                          <span key={k}>{k}</span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="card-desc">{report.description}</p>
+                    {report.conflict_note && (
+                      <p className="card-conflict">{report.conflict_note}</p>
+                    )}
+                  </section>
+                )}
+
+                {phase === "poem" && (
+                  <section className="card-panel card-panel--poem">
+                    <div className="card-rule" aria-hidden="true" />
+                    <blockquote className="card-poem">{report.quote.text}</blockquote>
+                    <cite className="card-author">—— {report.quote.author}</cite>
+                  </section>
+                )}
+              </div>
+
+              <div className="card-hint" aria-hidden="true">
+                可拖拽旋转
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "ending" && (
+        <div className="end-ui">
+          <button type="button" className="card-restart end-restart" onClick={onRestart}>
+            再次体验
           </button>
-        </footer>
-      </article>
+        </div>
+      )}
     </div>
   );
 }

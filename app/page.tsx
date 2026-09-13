@@ -30,6 +30,8 @@ type Stage = "start" | "interacting" | "questionnaire" | "generating" | "report"
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("start");
+  const [coverLeaving, setCoverLeaving] = useState(false);
+  const coverTimerRef = useRef<number | null>(null);
   const engineRef = useRef<AnimaEngine | null>(null);
   const sessionRef = useRef<{ events: EventLogEntry[]; durationSec: number } | null>(null);
   const [snapshot, setSnapshot] = useState<EngineSnapshot | null>(null);
@@ -54,6 +56,15 @@ export default function Home() {
     setSnapshot(null);
     setStage("interacting");
   }, [handleEnd]);
+
+  /** 封面散开：立刻起交互，封面叠在舞台上方约 1.15s 后卸载 */
+  const handleCoverEnter = useCallback(() => {
+    if (stage !== "start") return;
+    startSession();
+    setCoverLeaving(true);
+    if (coverTimerRef.current) window.clearTimeout(coverTimerRef.current);
+    coverTimerRef.current = window.setTimeout(() => setCoverLeaving(false), 1150);
+  }, [stage, startSession]);
 
   const handleSnapshot = useCallback((snap: EngineSnapshot) => {
     setSnapshot(snap);
@@ -120,15 +131,15 @@ export default function Home() {
     sessionRef.current = null;
     setReport(null);
     setSnapshot(null);
+    setCoverLeaving(false);
     setStage("start");
   }, []);
 
   if (stage === "start" || stage === "interacting") {
+    const showCover = stage === "start" || coverLeaving;
     return (
       <main className={`app-root ${stage === "interacting" ? "app-root--stage" : ""}`}>
-        {stage === "start" ? (
-          <StartScreen onStart={startSession} />
-        ) : (
+        {stage === "interacting" && (
           <>
             <InteractionStage
               engine={engineRef.current!}
@@ -137,6 +148,9 @@ export default function Home() {
             />
             <MonitoringPanel snapshot={snapshot} />
           </>
+        )}
+        {showCover && (
+          <StartScreen onStart={handleCoverEnter} leaving={coverLeaving} />
         )}
       </main>
     );

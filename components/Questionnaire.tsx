@@ -62,8 +62,8 @@ function BreathingField({ canvasRef }: { canvasRef: React.RefObject<HTMLCanvasEl
         const tw = 0.5 + 0.5 * Math.sin(t * p.sp * 2 + p.ph);
         ctx.beginPath();
         ctx.arc(p.x * w, p.y * h, p.r * (1 + 0.45 * tw), 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(198, 178, 240, ${0.045 + 0.055 * tw})`;
-        ctx.shadowColor = "rgba(158, 138, 220, 0.5)";
+        ctx.fillStyle = `rgba(140, 190, 240, ${0.05 + 0.06 * tw})`;
+        ctx.shadowColor = "rgba(100, 160, 230, 0.45)";
         ctx.shadowBlur = 8;
         ctx.fill();
         ctx.shadowBlur = 0;

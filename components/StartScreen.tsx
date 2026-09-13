@@ -1,30 +1,55 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
+
 interface Props {
+  /** 单击封面：开始散开并通知上层进入交互 */
   onStart: () => void;
+  /** 已进入交互、封面正在散开（盖在舞台上方，不可再点） */
+  leaving?: boolean;
 }
 
-/** 开始页 */
-export default function StartScreen({ onStart }: Props) {
+/** 封面：全屏视频循环；单击后自然散开，化入光晕 */
+export default function StartScreen({ onStart, leaving = false }: Props) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const armedRef = useRef(false);
+
+  useEffect(() => {
+    videoRef.current?.play().catch(() => {});
+  }, []);
+
+  const handleEnter = useCallback(() => {
+    if (leaving || armedRef.current) return;
+    armedRef.current = true;
+    onStart();
+  }, [leaving, onStart]);
+
   return (
-    <div className="start-wrap">
-      <div className="start-orb" aria-hidden="true" />
-      <h1 className="start-title">Anima</h1>
-      <p className="start-sub">一个拥有内部状态、记忆与不可解释性的情绪生命体</p>
-      <p className="start-desc">
-        你将与它进行 <b>90 秒</b> 自由交互。移动鼠标靠近、远离、停住，或点击触碰它——
-        它会有自己的回应，但不总是如你所愿。
-        <br />
-        结束后，你会得到一句诗，以及这九十秒里双方动作的客观记录。
-      </p>
-      <div className="start-actions">
-        <button className="btn" onClick={onStart}>
-          开始交互
-        </button>
-      </div>
-      <p className="start-note">
-        结果仅反映本次交互中的行为倾向，不构成心理诊断
-      </p>
+    <div
+      className={`cover ${leaving ? "cover--dissolve" : ""}`}
+      onClick={handleEnter}
+      role="button"
+      tabIndex={leaving ? -1 : 0}
+      aria-label="开始交互"
+      aria-hidden={leaving || undefined}
+      onKeyDown={(e) => {
+        if (leaving) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleEnter();
+        }
+      }}
+    >
+      <video
+        ref={videoRef}
+        className="cover-video"
+        src="/cover.mp4"
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+      />
     </div>
   );
 }
