@@ -13,7 +13,7 @@ const PHASE_MS = 8000;
 const VANISH_MS = 1200;
 
 /**
- * 报告卡片：可拖拽旋转的实体卡。
+ * 报告卡片：实体卡随鼠标移动倾转（无需按住）。
  * 序演出：互动记录 8s → 关系解读 8s → 诗句 8s → 卡片散去，接入结尾视频。
  */
 export default function ReportView({ report, onRestart }: Props) {
@@ -21,9 +21,7 @@ export default function ReportView({ report, onRestart }: Props) {
   const [fade, setFade] = useState(true);
   const [vanishing, setVanishing] = useState(false);
   const [rot, setRot] = useState({ x: -10, y: 16 });
-  const [dragging, setDragging] = useState(false);
-  const draggingRef = useRef(false);
-  const lastPt = useRef({ x: 0, y: 0 });
+  const [glare, setGlare] = useState({ x: 50, y: 40 });
   const cardRef = useRef<HTMLDivElement>(null);
   const endVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -51,63 +49,52 @@ export default function ReportView({ report, onRestart }: Props) {
     return;
   }, [phase]);
 
-  // 结尾视频：开始散卡时就预热播放，叠化更顺
   useEffect(() => {
     if (phase !== "ending" && !vanishing) return;
     endVideoRef.current?.play().catch(() => {});
   }, [phase, vanishing]);
 
-  // 结尾态保持可见
   useEffect(() => {
     if (phase === "ending") setFade(true);
   }, [phase]);
 
-  // 初始：若无互动记录则直接读解读
   useEffect(() => {
     if (report.inferences.length === 0) {
       setPhase((p) => (p === "log" ? "reading" : p));
     }
   }, [report.inferences.length]);
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    if (phase === "ending" || vanishing) return;
-    draggingRef.current = true;
-    setDragging(true);
-    lastPt.current = { x: e.clientX, y: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, [phase, vanishing]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!draggingRef.current) return;
-    const dx = e.clientX - lastPt.current.x;
-    const dy = e.clientY - lastPt.current.y;
-    lastPt.current = { x: e.clientX, y: e.clientY };
-    setRot((r) => ({
-      x: Math.max(-28, Math.min(28, r.x - dy * 0.22)),
-      y: Math.max(-42, Math.min(42, r.y + dx * 0.25)),
-    }));
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    draggingRef.current = false;
-    setDragging(false);
-  }, []);
-
-  const [glare, setGlare] = useState({ x: 50, y: 40 });
-  const onCardMove = useCallback((e: React.MouseEvent) => {
-    const el = cardRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setGlare({
-      x: ((e.clientX - r.left) / r.width) * 100,
-      y: ((e.clientY - r.top) / r.height) * 100,
-    });
-  }, []);
+  /** 鼠标在舞台上移动即可带动卡片倾转与反光，无需按住 */
+  const onStageMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (phase === "ending" || vanishing) return;
+      const el = cardRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const nx = (e.clientX - cx) / Math.max(1, r.width / 2);
+      const ny = (e.clientY - cy) / Math.max(1, r.height / 2);
+      const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+      setRot({
+        x: clamp(-ny * 16, -24, 24),
+        y: clamp(nx * 22, -36, 36),
+      });
+      setGlare({
+        x: ((e.clientX - r.left) / r.width) * 100,
+        y: ((e.clientY - r.top) / r.height) * 100,
+      });
+    },
+    [phase, vanishing]
+  );
 
   const showCard = phase !== "ending";
 
   return (
-    <div className={`report-stage ${phase === "ending" || vanishing ? "is-ending" : ""}`}>
+    <div
+      className={`report-stage ${phase === "ending" || vanishing ? "is-ending" : ""}`}
+      onMouseMove={onStageMove}
+    >
       {(phase === "ending" || vanishing) && (
         <video
           ref={endVideoRef}
@@ -125,15 +112,10 @@ export default function ReportView({ report, onRestart }: Props) {
         <div className={`report-card-scene ${vanishing ? "is-vanish" : ""}`}>
           <div
             ref={cardRef}
-            className={`report-card3d ${dragging ? "is-dragging" : ""}`}
+            className="report-card3d"
             style={{
               transform: `rotateX(${rot.x}deg) rotateY(${rot.y}deg)`,
             }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            onMouseMove={onCardMove}
           >
             <div className="card-face">
               <div className="card-edge" aria-hidden="true" />
@@ -190,7 +172,7 @@ export default function ReportView({ report, onRestart }: Props) {
               </div>
 
               <div className="card-hint" aria-hidden="true">
-                可拖拽旋转
+                移动鼠标 · 观察卡片
               </div>
             </div>
           </div>
