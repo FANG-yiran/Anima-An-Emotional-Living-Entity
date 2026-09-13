@@ -101,10 +101,10 @@ export function detectAttachmentState(
 
   // 候选态：边界清晰，但 avoidant 略放宽以便「退开/疏离」能进入螺旋
   let candidate: AttachmentState | null = null;
-  if (sa < 0.44 && ar > 0.55) candidate = "fearful";
+  if (sa < 0.50 && ar > 0.50) candidate = "fearful";
   else if (ap > 0.58 && sa < 0.46 && ar > 0.52) candidate = "anxious";
   else if (ap < 0.50 && ar < 0.62 && sa < 0.58) candidate = "avoidant";
-  else if (sa > 0.62 && ap >= 0.42) candidate = "secure";
+  else if (sa > 0.72 && ap >= 0.45) candidate = "secure";
 
   // 焦虑型已出现过一次后，其再次触发改判为恐惧型
   if (candidate === "anxious" && history.anxiousSeen) candidate = "fearful";
@@ -116,10 +116,10 @@ export function detectAttachmentState(
   const margin = 0.05;
   const holds = (st: AttachmentState): boolean => {
     switch (st) {
-      case "fearful": return sa < 0.44 + margin && ar > 0.55 - margin;
+      case "fearful": return sa < 0.50 + margin && ar > 0.50 - margin;
       case "anxious": return ap > 0.58 - margin && sa < 0.46 + margin && ar > 0.52 - margin;
       case "avoidant": return ap < 0.50 + margin && ar < 0.62 + margin && sa < 0.58 + margin;
-      case "secure": return sa > 0.62 - margin && ap >= 0.42 - margin;
+      case "secure": return sa > 0.72 - margin && ap >= 0.45 - margin;
       case "fusion": return fusionUnlocked && ap > 0.45 && sa > 0.45 && ar > 0.45;
       case "dormant": return m < 0.18;
       default: return false;

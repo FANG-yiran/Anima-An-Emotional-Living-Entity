@@ -508,35 +508,23 @@ button {
 
 /* ============ 生成中 ============ */
 .generating {
-  font-family: var(--font-poem); /* 生成页所有文字统一宋体 */
-  text-align: center;
+  width: 100%;
+  min-height: 100vh;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 20px;
-  padding: 40px;
-}
-
-.generating-orb {
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(238, 242, 255, 0.95),
-    rgba(110, 231, 255, 0.75) 40%,
-    rgba(167, 139, 250, 0.45) 75%
-  );
-  box-shadow: 0 0 60px rgba(110, 231, 255, 0.4);
-  animation: breathe 2.4s ease-in-out infinite;
+  justify-content: center;
 }
 
 /* 第三性之眼：观察者（图片 + 眨眼） */
 .observer-eye {
-  width: 130px;
+  width: 55vmin;
+  max-width: 640px;
   height: auto;
   display: block;
-  animation: eye-blink 4.6s ease-in-out infinite;
+  filter:
+    drop-shadow(0 0 50px rgba(120, 180, 255, 0.5))
+    drop-shadow(0 0 110px rgba(160, 130, 255, 0.28));
+  animation: eye-blink 4.6s ease-in-out infinite, eye-glow 3.2s ease-in-out infinite;
 }
 
 @keyframes eye-blink {
@@ -545,12 +533,17 @@ button {
   96% { transform: scaleY(1); }
 }
 
-.generating-sub {
-  color: var(--text-1);
-  font-size: 16px;
-  letter-spacing: 1px;
-  line-height: 1.9;
-  max-width: 460px;
+@keyframes eye-glow {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 50px rgba(120, 180, 255, 0.5))
+      drop-shadow(0 0 110px rgba(160, 130, 255, 0.28));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 70px rgba(120, 180, 255, 0.7))
+      drop-shadow(0 0 150px rgba(160, 130, 255, 0.4));
+  }
 }
 
 /* ============ 报告：可拖拽实体卡片 ============ */
