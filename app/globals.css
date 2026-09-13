@@ -521,29 +521,13 @@ button {
   max-width: 640px;
   height: auto;
   display: block;
-  filter:
-    drop-shadow(0 0 50px rgba(120, 180, 255, 0.5))
-    drop-shadow(0 0 110px rgba(160, 130, 255, 0.28));
-  animation: eye-blink 4.6s ease-in-out infinite, eye-glow 3.2s ease-in-out infinite;
+  animation: eye-blink 4.6s ease-in-out infinite;
 }
 
 @keyframes eye-blink {
   0%, 90%, 100% { transform: scaleY(1); }
   93% { transform: scaleY(0.08); }
   96% { transform: scaleY(1); }
-}
-
-@keyframes eye-glow {
-  0%, 100% {
-    filter:
-      drop-shadow(0 0 50px rgba(120, 180, 255, 0.5))
-      drop-shadow(0 0 110px rgba(160, 130, 255, 0.28));
-  }
-  50% {
-    filter:
-      drop-shadow(0 0 70px rgba(120, 180, 255, 0.7))
-      drop-shadow(0 0 150px rgba(160, 130, 255, 0.4));
-  }
 }
 
 /* ============ 报告：可拖拽实体卡片 ============ */
