@@ -54,6 +54,9 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
       const rect = wrap.getBoundingClientRect();
       return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
+    // 单击检测：延迟 360ms 执行，若期间有第二次按下则取消（视为双击）
+    let singleClickTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingClick: { x: number; y: number } | null = null;
     const onMove = (e: MouseEvent) => {
       const p = toLocal(e);
       engine.handleMove(p.x, p.y);
@@ -61,10 +64,23 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
     const onDown = (e: MouseEvent) => {
       const p = toLocal(e);
       engine.handleDown(p.x, p.y);
+      // 若有挂起的单击，说明是双击 → 取消节点移除
+      if (singleClickTimer) {
+        clearTimeout(singleClickTimer);
+        singleClickTimer = null;
+        pendingClick = null;
+      }
     };
     const onUp = (e: MouseEvent) => {
       const p = toLocal(e);
       engine.handleUp(p.x, p.y);
+      // 延迟判定：360ms 内无第二次按下则视为单击，移除 Hive Mind 节点
+      pendingClick = p;
+      singleClickTimer = setTimeout(() => {
+        if (pendingClick) lifeform.handleClick(pendingClick.x, pendingClick.y);
+        singleClickTimer = null;
+        pendingClick = null;
+      }, 360);
     };
     const onOut = (e: MouseEvent) => {
       if (!e.relatedTarget) engine.handleWindowLeave();
@@ -106,6 +122,7 @@ export default function InteractionStage({ engine, snapshot, onSnapshot }: Props
 
     return () => {
       cancelAnimationFrame(rafRef.current);
+      if (singleClickTimer) clearTimeout(singleClickTimer);
       ro.disconnect();
       lifeform.dispose();
       lifeformRef.current = null;

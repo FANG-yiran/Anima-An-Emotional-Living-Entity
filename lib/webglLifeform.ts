@@ -46,7 +46,7 @@ export interface StateParams {
 
 export const STATE_PARAMS: Record<AttachmentState, StateParams> = {
   dormant:  { cohesion: 0.05, cursorForce: 0.1, vortex: 0,   connect: 0,   turbulence: 0.02, fluidMix: 0,    orbit: 0,   migration: 0,  sandPull: 0,  repel: 0, split: 0, size: 1.0,  colorTemp: 0.2  },
-  secure:   { cohesion: 0.55, cursorForce: 0.4, vortex: 0.1, connect: 0.2, turbulence: 0.05, fluidMix: 0.1,  orbit: 1,   migration: 0,  sandPull: 0.3, repel: 0, split: 0, size: 1.15, colorTemp: 0.5  },
+  secure:   { cohesion: 0.5, cursorForce: 0.45, vortex: 0.1, connect: 0.15, turbulence: 0.06, fluidMix: 0.15, orbit: 0.3, migration: 0, sandPull: 0.2, repel: 0, split: 0, size: 1.2, colorTemp: 0.5  },
   anxious:  { cohesion: 0.75, cursorForce: 0.9, vortex: 0.3, connect: 0.4, turbulence: 0.25, fluidMix: 1,    orbit: 0,   migration: 0,  sandPull: 0,  repel: 0, split: 0, size: 1.4,  colorTemp: 0.7  },
   avoidant: { cohesion: 0.28, cursorForce: 0.38, vortex: 0,  connect: 0.05, turbulence: 0.08, fluidMix: 0.05, orbit: 0,  migration: 1,  sandPull: 0,  repel: 1, split: 0, size: 0.9,  colorTemp: 0.4  },
   fearful:  { cohesion: 0.45, cursorForce: 0.65, vortex: 0.55, connect: 0.15, turbulence: 0.26, fluidMix: 0.2,  orbit: 0,  migration: 0,  sandPull: 0,  repel: 0, split: 0.35, size: 1.2, colorTemp: 0.6  },
@@ -555,6 +555,7 @@ uniform float uHomePrev;
 uniform float uHomeCur;
 uniform float uBurst;
 uniform float uBreath; // 呼吸同步（hold）
+uniform float uBeingMask[72]; // Migration Paths：被移除的个体掩码（1=已移除）
 
 out vec4 fragColor;
 
@@ -566,21 +567,85 @@ vec2 uvFromIndex(float i){
   return (vec2(mod(i, uGridW), floor(i / uGridW)) + 0.5) / uGridSize;
 }
 
+// Migration Paths：3 条迁徙路径 × 3 组 × 8 个体 = 72 个迁徙个体
+// 路径 0：V 编队；路径 1：一字编队；路径 2：簇编队
+vec2 mpPathPt(int pathIdx, int ptIdx) {
+  if (pathIdx == 0) {
+    if (ptIdx == 0) return vec2(-330.0, -100.0);
+    if (ptIdx == 1) return vec2(-165.0, 55.0);
+    if (ptIdx == 2) return vec2(0.0, 85.0);
+    if (ptIdx == 3) return vec2(165.0, 55.0);
+    return vec2(330.0, -100.0);
+  } else if (pathIdx == 1) {
+    if (ptIdx == 0) return vec2(-350.0, 115.0);
+    if (ptIdx == 1) return vec2(-175.0, 165.0);
+    if (ptIdx == 2) return vec2(0.0, 185.0);
+    if (ptIdx == 3) return vec2(175.0, 165.0);
+    return vec2(350.0, 115.0);
+  } else {
+    if (ptIdx == 0) return vec2(-310.0, -175.0);
+    if (ptIdx == 1) return vec2(-155.0, -155.0);
+    if (ptIdx == 2) return vec2(0.0, -165.0);
+    if (ptIdx == 3) return vec2(155.0, -145.0);
+    return vec2(310.0, -175.0);
+  }
+}
+vec2 catmullRom(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
+  float t2 = t * t, t3 = t2 * t;
+  return 0.5 * (2.0 * p1 + (-p0 + p2) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
+}
+vec2 mpPathPos(int pathIdx, float t, out vec2 tangent) {
+  float seg = clamp(t, 0.0, 1.0) * 4.0;
+  int s = int(clamp(floor(seg), 0.0, 3.0));
+  float st = seg - float(s);
+  vec2 p0 = mpPathPt(pathIdx, max(s - 1, 0));
+  vec2 p1 = mpPathPt(pathIdx, s);
+  vec2 p2 = mpPathPt(pathIdx, min(s + 1, 4));
+  vec2 p3 = mpPathPt(pathIdx, min(s + 2, 4));
+  tangent = normalize(p2 - p0 + 1e-4);
+  return catmullRom(p0, p1, p2, p3, st);
+}
+vec2 mpFormationOffset(int formation, int beingIdx, float r) {
+  if (formation == 0) { // V 字
+    float side = mod(float(beingIdx), 2.0) < 1.0 ? 1.0 : -1.0;
+    float dist = floor(float(beingIdx) / 2.0) * 16.0;
+    return vec2(side * dist, -dist * 0.35);
+  } else if (formation == 1) { // 一字
+    return vec2(0.0, -float(beingIdx) * 13.0);
+  } else { // 簇
+    float ang = (float(beingIdx) / 8.0) * 6.28318 + r;
+    float rad = 14.0 + r * 7.0;
+    return vec2(cos(ang) * rad, sin(ang) * rad * 0.6);
+  }
+}
+
 // 各形态「家」位置：统一用有体积的光点簇分布（与 VISUAL_CATALOG 气质对齐）
 vec2 homePos(float i, float stateId){
   float r1 = hash(i), r2 = hash(i+3.7), r3 = hash(i+11.9), r4 = hash(i+19.3);
   if (stateId < 0.5) { // dormant：散落星尘（全空间微光）
     return vec2(r1, r2) * vec2(uResW, uResH);
-  } else if (stateId < 1.5) { // secure：柔和轨道环 + 厚度（低频呼吸的可停留体）
-    float ang = r1 * 6.28318;
-    // 主环 + 次级薄环，形成「柔软山丘/双层肌理」
-    float ring = step(r4, 0.72);
-    float rad = mix(70.0 + r2 * 55.0, 110.0 + r2 * 120.0, ring);
-    float ySquash = 0.72 + 0.2 * r3; // 轻微透视压扁
-    vec2 p = uCore + vec2(cos(ang), sin(ang) * ySquash) * rad;
-    // 环厚度方向噪声
-    p += vec2(cos(ang), sin(ang)) * (r3 - 0.5) * 22.0;
-    return p;
+  } else if (stateId < 1.5) { // secure：Migration Paths — 编队迁徙
+    int pathIdx = int(min(floor(hash(i + 0.1) * 3.0), 2.0));
+    int groupIdx = int(min(floor(hash(i + 1.3) * 3.0), 2.0));
+    int beingIdx = int(min(floor(hash(i + 2.7) * 8.0), 7.0));
+    int beingId = pathIdx * 24 + groupIdx * 8 + beingIdx;
+    if (uBeingMask[beingId] > 0.5) return vec2(-9999.0, -9999.0);
+    int formation = pathIdx;
+    float speed = 0.025 + float(groupIdx) * 0.006;
+    float progress = fract(float(groupIdx) / 3.0 + uTime * speed);
+    vec2 tangent;
+    vec2 base = mpPathPos(pathIdx, progress, tangent);
+    vec2 fOff = mpFormationOffset(formation, beingIdx, hash(i + 4.1));
+    vec2 right = vec2(tangent.y, -tangent.x);
+    vec2 pos = uCore + base + right * fOff.x + tangent * fOff.y;
+    // 翅膀拍动 + 滑翔起伏
+    float wing = sin(uTime * 9.0 + float(beingIdx) * 0.7 + float(groupIdx)) * 3.5;
+    float glide = sin(uTime * 1.5 + float(beingIdx) * 0.3 + float(pathIdx)) * 4.0;
+    pos += right * wing + vec2(0.0, glide);
+    // 个体光点抖动
+    float ja = hash(i + 5.5) * 6.28318;
+    float jr = pow(hash(i + 6.2), 2.0) * 5.0;
+    return pos + vec2(cos(ja), sin(ja)) * jr;
   } else if (stateId < 2.5) { // anxious：同心波纹团块（感知过载的颗粒云）
     // 三环 + 中心密核 + 外溢噪点
     float band = floor(r3 * 3.0);
@@ -777,6 +842,8 @@ uniform float uHasCursor;
 uniform float uResW;
 uniform float uResH;
 uniform vec2 uCore;
+uniform float uBeingMask[72];
+uniform float uMigMode;
 out float vTwinkle;
 out float vSeed;
 out float vDepth;
@@ -798,8 +865,9 @@ void main(){
   vLineA = 1.0;
   vec2 nd = vec2(pos.x / uRes.x * 2.0 - 1.0, 1.0 - pos.y / uRes.y * 2.0);
   gl_Position = vec4(nd, 0.0, 1.0);
-  // 与其它态同一量级的点径；螺纹态只略增，避免点叠成实线
-  gl_PointSize = uSize * (1.2 + vSeed * 1.1) * (1.0 + min(spd * 0.02, 0.6)) * mix(1.0, 1.15, uLineMode);
+  // Migration Paths：迁徙个体放大为可见光点
+  float migBoost = mix(1.0, 2.0, uMigMode);
+  gl_PointSize = uSize * migBoost * (1.2 + vSeed * 1.1) * (1.0 + min(spd * 0.02, 0.6)) * mix(1.0, 1.15, uLineMode);
 }
 `;
 const points_frag = `
@@ -1536,6 +1604,13 @@ export class WebGLLifeform {
   // 焦虑型是否已出现过：出现一次后，其再次触发改判为恐惧型
   private anxiousSeen = false;
 
+  // ---- Migration Paths（secure 态）：72 个迁徙个体，点击移除 ----
+  private beingMask = new Array(72).fill(0);
+  private removedCount = 0;
+  private lastElapsed = 0;
+  private lastEntityX = 0;
+  private lastEntityY = 0;
+
   // ---- 间奏异象：同一状态驻留 15s 后浮现 4s 涟漪水面（public 供 overlay 轮询） ----
   interludeType: InterludeType = null;
   interludeAlpha = 0;
@@ -1671,6 +1746,7 @@ export class WebGLLifeform {
         uHomeCur: { value: 0 },
         uBurst: { value: 0 },
         uBreath: { value: 0 },
+        uBeingMask: { value: new Array(72).fill(0) },
         uBlobMode: { value: 0 },
         uBlob: { value: Array.from({ length: 6 }, () => new THREE.Vector2(0, 0)) },
         uBlobV: { value: Array.from({ length: 6 }, () => new THREE.Vector2(0, 0)) },
@@ -1711,6 +1787,8 @@ export class WebGLLifeform {
         uCursor: { value: new THREE.Vector2(0, 0) },
         uHasCursor: { value: 0 },
         uCore: { value: new THREE.Vector2(this.width / 2, this.height / 2) },
+        uBeingMask: { value: new Array(72).fill(0) },
+        uMigMode: { value: 0 },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -1918,6 +1996,15 @@ export class WebGLLifeform {
       cur[k] = from[k] + (target[k] - from[k]) * tf;
     });
 
+    // ---- Migration Paths：个体被点击移除后，secure 态逐步向 anxious 气质偏移 ----
+    if (this.targetState === "secure" && this.removedCount > 0) {
+      const anx = STATE_PARAMS.anxious;
+      const t = Math.min(1, this.removedCount / 36);
+      (Object.keys(cur) as (keyof StateParams)[]).forEach((k) => {
+        cur[k] = cur[k] + (anx[k] - cur[k]) * t;
+      });
+    }
+
     // ---- 恐惧态元球：推进模拟 + 平滑形态权重 ----
     this.stepBlobs(snap, Math.min(dtSec, 0.05));
     const blobTarget = this.targetState === "fearful" ? 1 : 0;
@@ -1927,6 +2014,9 @@ export class WebGLLifeform {
     this.updateInterlude(now);
 
     // ---- 更新 uniform ----
+    this.lastElapsed = snap.elapsed;
+    this.lastEntityX = snap.entityPos.x;
+    this.lastEntityY = snap.entityPos.y;
     const U = this.updateMaterial.uniforms;
     U.uTime.value = snap.elapsed;
     U.uDt.value = Math.min(dtSec, 0.05);
@@ -1957,6 +2047,8 @@ export class WebGLLifeform {
     U.uHomeCur.value = STATE_ORDER.indexOf(this.targetState);
     U.uBurst.value = now < this.burstUntil ? Math.max(0, 1 - (this.burstUntil - now) / 700) : 0;
     U.uBreath.value = snap.interactionMode === "hold" ? 1 : 0;
+    // Migration Paths 个体掩码
+    U.uBeingMask.value = this.beingMask.slice();
 
     // 渲染 uniform
     const PM = this.pointsMat.uniforms;
@@ -1973,6 +2065,8 @@ export class WebGLLifeform {
     } else {
       PM.uHasCursor.value = 0;
     }
+    PM.uBeingMask.value = this.beingMask.slice();
+    PM.uMigMode.value = this.targetState === "secure" ? 1 : 0;
 
     // 回避态：不再用连续壳线接管视觉（那会把光点簇画成描边线条）。
     // 仅在进入过渡期保留极淡骨架提示，稳态始终由粒子簇呈现。
@@ -2153,6 +2247,85 @@ export class WebGLLifeform {
     this.debugOverride = null;
   }
 
+  // ---- Migration Paths：迁徙个体位置（与 GLSL 严格一致，用于点击命中检测） ----
+  private static MP_PATH_POINTS: number[][][] = [
+    [[-330, -100], [-165, 55], [0, 85], [165, 55], [330, -100]],
+    [[-350, 115], [-175, 165], [0, 185], [175, 165], [350, 115]],
+    [[-310, -175], [-155, -155], [0, -165], [155, -145], [310, -175]],
+  ];
+  private beingPosJS(beingId: number): { x: number; y: number } {
+    const pathIdx = Math.floor(beingId / 24);
+    const groupIdx = Math.floor((beingId % 24) / 8);
+    const beingIdx = beingId % 8;
+    const t = this.lastElapsed;
+    const speed = 0.025 + groupIdx * 0.006;
+    let progress = (groupIdx / 3) + t * speed;
+    progress = progress - Math.floor(progress);
+    // Catmull-Rom 沿路径
+    const seg = Math.min(4, Math.max(0, progress * 4));
+    const s = Math.min(3, Math.max(0, Math.floor(seg)));
+    const st = seg - s;
+    const pts = WebGLLifeform.MP_PATH_POINTS[pathIdx];
+    const p0 = pts[Math.max(s - 1, 0)];
+    const p1 = pts[s];
+    const p2 = pts[Math.min(s + 1, 4)];
+    const p3 = pts[Math.min(s + 2, 4)];
+    const st2 = st * st, st3 = st2 * st;
+    const bx = 0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * st + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * st2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * st3);
+    const by = 0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * st + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * st2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * st3);
+    // 切线
+    let tx = p2[0] - p0[0], ty = p2[1] - p0[1];
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl; ty /= tl;
+    const rx = ty, ry = -tx; // 右手法线
+    // 编队偏移（确定性部分，r≈0）
+    let fx = 0, fy = 0;
+    if (pathIdx === 0) { // V
+      const side = beingIdx % 2 === 0 ? 1 : -1;
+      const dist = Math.floor(beingIdx / 2) * 16;
+      fx = side * dist; fy = -dist * 0.35;
+    } else if (pathIdx === 1) { // 一字
+      fx = 0; fy = -beingIdx * 13;
+    } else { // 簇
+      const ang = (beingIdx / 8) * Math.PI * 2;
+      fx = Math.cos(ang) * 14; fy = Math.sin(ang) * 14 * 0.6;
+    }
+    let px = this.lastEntityX + bx + rx * fx + tx * fy;
+    let py = this.lastEntityY + by + ry * fx + ty * fy;
+    // 翅膀 + 滑翔
+    const wing = Math.sin(t * 9 + beingIdx * 0.7 + groupIdx) * 3.5;
+    const glide = Math.sin(t * 1.5 + beingIdx * 0.3 + pathIdx) * 4.0;
+    px += rx * wing;
+    py += ry * wing + glide;
+    return { x: px, y: py };
+  }
+
+  /** 点击光点：移除最近的迁徙个体（secure 态生效） */
+  handleClick(x: number, y: number) {
+    if (this.targetState !== "secure") return;
+    let bestIdx = -1;
+    let bestDist = 30; // 点击命中半径（px）
+    for (let i = 0; i < 72; i++) {
+      if (this.beingMask[i] > 0.5) continue;
+      const bp = this.beingPosJS(i);
+      const d = Math.hypot(bp.x - x, bp.y - y);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx >= 0) {
+      this.beingMask[bestIdx] = 1;
+      this.removedCount++;
+    }
+  }
+
+  /** 重置迁徙个体（切换出 secure 态时调用） */
+  private resetBeings() {
+    this.beingMask.fill(0);
+    this.removedCount = 0;
+  }
+
   /** 播种恐惧态元球：6 球心聚成单团软球（有机而非正圆） */
   private seedBlobs() {
     const cx = this.width / 2;
@@ -2247,6 +2420,8 @@ export class WebGLLifeform {
     this.morphFrom = { ...this.currentParams };
     this.prevState = this.targetState;
     this.targetState = s;
+    // 离开 secure 态时重置迁徙个体
+    if (this.prevState === "secure" && s !== "secure") this.resetBeings();
     // 焦虑型一旦真正出现即被记录：之后再次触发将改判为恐惧型
     if (s === "anxious") this.anxiousSeen = true;
     // 状态切换：驻留计时重新开始（间奏期间的切换不影响当前间奏播完）
